@@ -5,117 +5,182 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Buyer Dashboard | Mkulima Direct</title>
     <style>
-        /* Exact same base layout as Farmer for consistency */
+        /* Minimal Color Palette */
         :root {
-            --primary-color: #2E8B57;
-            --secondary-color: #1E5631;
-            --bg-color: #f4f9f4;
+            --primary-color: #2E8B57; /* SeaGreen */
+            --bg-color: #ffffff;
+            --sidebar-bg: #f9f9f9;
             --text-dark: #333333;
+            --border-color: #e0e0e0;
             --sidebar-width: 250px;
         }
+
         body {
             margin: 0;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: Arial, Helvetica, sans-serif;
             background-color: var(--bg-color);
+            color: var(--text-dark);
             display: flex;
             height: 100vh;
         }
+
         .sidebar {
             width: var(--sidebar-width);
-            background-color: white;
-            box-shadow: 2px 0 10px rgba(0,0,0,0.05);
+            background-color: var(--sidebar-bg);
+            border-right: 1px solid var(--border-color);
             display: flex;
             flex-direction: column;
             padding-top: 20px;
         }
-        .sidebar h2 { text-align: center; color: var(--primary-color); margin-bottom: 30px; }
+
+        .sidebar h2 { 
+            text-align: center; 
+            color: var(--primary-color); 
+            margin-bottom: 30px; 
+            font-size: 1.3rem;
+        }
+
         .sidebar a {
             text-decoration: none;
             color: var(--text-dark);
             padding: 15px 25px;
-            font-weight: 500;
-            transition: background 0.2s, color 0.2s;
+            font-weight: bold;
             border-left: 4px solid transparent;
         }
+
         .sidebar a:hover, .sidebar a.active {
-            background-color: #eaf3ea;
+            background-color: #eeeeee;
             border-left-color: var(--primary-color);
             color: var(--primary-color);
         }
-        .logout { margin-top: auto; margin-bottom: 20px; color: #d9534f !important; }
 
-        .main-content { flex: 1; padding: 40px; overflow-y: auto; }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
-        .header h1 { margin: 0; color: var(--secondary-color); }
+        .logout { 
+            margin-top: auto; 
+            margin-bottom: 20px; 
+            color: #d9534f !important; 
+        }
+
+        .main-content { 
+            flex: 1; 
+            padding: 40px; 
+            overflow-y: auto; 
+        }
+
+        .header { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            margin-bottom: 30px; 
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 20px;
+        }
+
+        .header h1 { 
+            margin: 0; 
+            color: var(--primary-color); 
+            font-size: 1.8rem;
+        }
         
+        .header input {
+            padding: 10px; 
+            border-radius: 4px; 
+            border: 1px solid var(--border-color); 
+            width: 300px;
+        }
+
         .market-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
             gap: 20px;
+            margin-top: 20px;
         }
+
         .product-card {
-            background: white;
+            background: #ffffff;
             padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-            text-align: center;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            text-align: left; /* Left-aligned for cleaner data reading */
         }
-        .product-card img { width: 100px; height: 100px; background-color: #e0e0e0; border-radius: 50%; margin-bottom: 15px; }
-        .product-card h3 { margin: 0 0 10px 0; color: var(--text-dark); }
-        .product-card p { color: var(--primary-color); font-weight: bold; margin: 0 0 15px 0; }
+
+        .product-card h3 { 
+            margin: 0 0 10px 0; 
+            color: var(--primary-color); 
+            font-size: 1.2rem;
+        }
+
+        .product-card p { 
+            color: #555; 
+            margin: 5px 0; 
+            font-size: 0.95rem;
+        }
+
+        .product-card .price { 
+            font-weight: bold; 
+            color: var(--text-dark); 
+            margin-bottom: 15px; 
+            display: block;
+        }
+
         .product-card button {
             width: 100%;
             padding: 10px;
             background: var(--primary-color);
             color: white;
             border: none;
-            border-radius: 5px;
+            border-radius: 4px;
+            font-weight: bold;
             cursor: pointer;
+            margin-top: 15px;
+        }
+
+        .product-card button:hover {
+            opacity: 0.9;
         }
     </style>
 </head>
 <body>
 
     <div class="sidebar">
-        <h2>🛒 Buyer Panel</h2>
+        <h2>Buyer Panel</h2>
         <a href="dashboard.html" class="active">Marketplace</a>
         <a href="#">My Cart (2)</a>
         <a href="#">Order History</a>
         <a href="#">Track Delivery</a>
         <a href="#">Account Settings</a>
-        <a href="../index.html" class="logout">🚪 Log Out</a>
+        <a href="../index.html" class="logout">Log Out</a>
     </div>
 
     <div class="main-content">
         <div class="header">
             <h1>Fresh Market</h1>
-            <input type="text" placeholder="Search for crops..." style="padding: 10px; border-radius: 5px; border: 1px solid #ccc; width: 300px;">
+            <input type="text" placeholder="Search for crops...">
         </div>
 
-        <h2 style="margin-top: 0;">Featured Produce</h2>
+        <h2 style="margin-top: 0; font-size: 1.4rem; color: #333;">Featured Produce</h2>
+        
         <div class="market-grid">
             <div class="product-card">
-                <div class="img-placeholder">🌽</div>
                 <h3>Fresh Maize</h3>
-                <p>KSh 3,500 / Sack</p>
+                <span class="price">KSh 3,500 / Sack</span>
                 <p>Farmer: Jens Jura</p>
                 <p>Location: Kiambu</p>
                 <p>Phone: 5566</p>
                 <button>Add to Cart</button>
             </div>
+            
             <div class="product-card">
-                <div class="img-placeholder">🍅</div>
                 <h3>Tomatoes</h3>
-                <p>KSh 80 / Kg</p>
+                <span class="price">KSh 80 / Kg</span>
                 <p>Farmer: Jane Smith</p>
                 <p>Location: Kajiado</p>
                 <p>Phone: 1122</p>
                 <button>Add to Cart</button>
             </div>
+            
             <div class="product-card">
-                <div class="img-placeholder">🥔</div>
                 <h3>Potatoes</h3>
-                <p>KSh 2,000 / Sack</p>
+                <span class="price">KSh 2,000 / Sack</span>
                 <p>Farmer: John Doe</p>
                 <p>Location: Nakuru</p>
                 <p>Phone: 3344</p>

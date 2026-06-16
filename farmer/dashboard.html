@@ -5,48 +5,62 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Farmer Dashboard | Mkulima Direct</title>
     <style>
+        /* Minimal Color Palette */
         :root {
-            --primary-color: #2E8B57;
-            --secondary-color: #1E5631;
-            --bg-color: #f4f9f4;
+            --primary-color: #2E8B57; /* SeaGreen */
+            --bg-color: #ffffff;
+            --sidebar-bg: #f9f9f9;
             --text-dark: #333333;
+            --border-color: #e0e0e0;
             --sidebar-width: 250px;
         }
+
+        /* Basic Reset */
         body {
             margin: 0;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: Arial, Helvetica, sans-serif;
             background-color: var(--bg-color);
+            color: var(--text-dark);
             display: flex;
             height: 100vh;
         }
-        /* Sidebar Styles */
+
+        /* Flat Sidebar Styles */
         .sidebar {
             width: var(--sidebar-width);
-            background-color: white;
-            box-shadow: 2px 0 10px rgba(0,0,0,0.05);
+            background-color: var(--sidebar-bg);
+            border-right: 1px solid var(--border-color);
             display: flex;
             flex-direction: column;
             padding-top: 20px;
         }
+
         .sidebar h2 {
             text-align: center;
             color: var(--primary-color);
             margin-bottom: 30px;
+            font-size: 1.3rem;
         }
+
         .sidebar a {
             text-decoration: none;
             color: var(--text-dark);
             padding: 15px 25px;
-            font-weight: 500;
-            transition: background 0.2s, color 0.2s;
+            font-weight: bold;
             border-left: 4px solid transparent;
         }
+
         .sidebar a:hover, .sidebar a.active {
-            background-color: #eaf3ea;
+            background-color: #eeeeee;
             border-left-color: var(--primary-color);
             color: var(--primary-color);
         }
-        .logout { margin-top: auto; margin-bottom: 20px; color: #d9534f !important; }
+
+        .logout { 
+            margin-top: auto; 
+            margin-bottom: 20px; 
+            color: #d9534f !important; 
+        }
 
         /* Main Content Styles */
         .main-content {
@@ -54,44 +68,97 @@
             padding: 40px;
             overflow-y: auto;
         }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
-        .header h1 { margin: 0; color: var(--secondary-color); }
+
+        .header { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            margin-bottom: 30px; 
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 20px;
+        }
+
+        .header h1 { 
+            margin: 0; 
+            color: var(--primary-color); 
+            font-size: 1.8rem;
+        }
         
-        /* Stats Grid */
+        .header button {
+            padding: 10px 20px; 
+            background: var(--primary-color); 
+            color: white; 
+            border: none; 
+            border-radius: 4px; 
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .header button:hover {
+            opacity: 0.9;
+        }
+        
+        /* Flat Stats Grid */
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 20px;
             margin-bottom: 40px;
         }
+
+        /* Minimal Stat Card */
         .stat-card {
-            background: white;
+            background: #ffffff;
             padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-            text-align: center;
-            border-top: 4px solid var(--primary-color);
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            text-align: left;
         }
-        .stat-card h3 { margin: 0; font-size: 2rem; color: var(--text-dark); }
-        .stat-card p { margin: 5px 0 0; color: #666; font-size: 0.9rem; }
+
+        .stat-card h3 { 
+            margin: 0; 
+            font-size: 1.8rem; 
+            color: var(--primary-color); 
+        }
+
+        .stat-card p { 
+            margin: 5px 0 0; 
+            color: #555; 
+            font-size: 0.9rem; 
+            font-weight: bold;
+        }
+
+        /* Recent Orders Section */
+        .recent-orders {
+            background: #ffffff; 
+            padding: 20px; 
+            border-radius: 4px; 
+            border: 1px solid var(--border-color);
+        }
+
+        .recent-orders h2 {
+            margin-top: 0;
+            font-size: 1.4rem;
+            color: #333;
+        }
     </style>
 </head>
 <body>
 
     <div class="sidebar">
-        <h2>👨🏽‍🌾 Farmer Panel</h2>
+        <h2>Farmer Panel</h2>
         <a href="dashboard.html" class="active">Dashboard Overview</a>
         <a href="#">My Produce</a>
         <a href="#">Add New Listing</a>
         <a href="#">Orders & Sales</a>
         <a href="#">Account Settings</a>
-        <a href="../index.html" class="logout">🚪 Log Out</a>
+        <a href="../index.html" class="logout">Log Out</a>
     </div>
 
     <div class="main-content">
         <div class="header">
             <h1>Welcome back, John!</h1>
-            <button style="padding: 10px 20px; background: var(--primary-color); color: white; border: none; border-radius: 5px; cursor: pointer;">+ Add New Produce</button>
+            <button>+ Add New Produce</button>
         </div>
 
         <div class="stats-grid">
@@ -109,10 +176,10 @@
             </div>
         </div>
 
-        <div style="background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
-            <h2 style="margin-top: 0;">Recent Orders</h2>
+        <div class="recent-orders">
+            <h2>Recent Orders</h2>
             <p style="color: #666;">You have 4 orders waiting to be shipped.</p>
-            </div>
+        </div>
     </div>
 
 </body>
