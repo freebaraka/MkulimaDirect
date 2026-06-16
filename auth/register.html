@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mkulima Direct | Register</title>
+    <style>
+        :root {
+            --primary-color: #2E8B57;
+            --secondary-color: #1E5631;
+            --bg-color: #f4f9f4;
+            --text-dark: #333333;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .auth-container {
+            background: white;
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+            border-top: 5px solid var(--primary-color);
+        }
+        h2 { color: var(--secondary-color); margin-top: 0; }
+        input, select {
+            width: 100%;
+            padding: 12px;
+            margin: 10px 0;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            box-sizing: border-box;
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: background 0.3s;
+            margin-top: 15px;
+        }
+        button:hover { background-color: var(--secondary-color); }
+        .links { margin-top: 20px; font-size: 0.9rem; }
+        .links a { color: var(--primary-color); text-decoration: none; }
+        .links a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+
+    <div class="auth-container">
+        <h2>Create an Account 🌾</h2>
+        <p style="color: #666; margin-bottom: 25px;">Join the Mkulima Direct community.</p>
+        
+        <form action="#" method="POST">
+            <input type="text" placeholder="Full Name" required>
+            <input type="text" placeholder="Phone Number" required>
+            
+            <select required>
+                <option value="" disabled selected>Select your role...</option>
+                <option value="farmer">I am a Farmer</option>
+                <option value="buyer">I am a Buyer</option>
+            </select>
+
+            <input type="password" placeholder="Create Password" required>
+            
+            <button type="submit">Sign Up</button>
+        </form>
+
+        <div class="links">
+            <p>Already have an account? <a href="login.html">Log In here</a>.</p>
+            <p><a href="../index.html">← Back to Home</a></p>
+        </div>
+    </div>
+
+</body>
+</html>
