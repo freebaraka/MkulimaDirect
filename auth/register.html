@@ -6,9 +6,9 @@
     <title>Mkulima Direct | Register</title>
     <style>
         :root {
-            --primary-color: #2E8B57;
-            --secondary-color: #1E5631;
-            --bg-color: #f4f9f4;
+            --primary-color: #2bba5c;
+            --secondary-color: #1a6e38;
+            --bg-color: #f0fdf4;
             --text-dark: #333333;
         }
         body {
@@ -50,11 +50,23 @@
             cursor: pointer;
             transition: background 0.3s;
             margin-top: 15px;
+            font-weight: bold;
         }
         button:hover { background-color: var(--secondary-color); }
         .links { margin-top: 20px; font-size: 0.9rem; }
         .links a { color: var(--primary-color); text-decoration: none; }
         .links a:hover { text-decoration: underline; }
+        
+        /* Message styling */
+        #status-message {
+            margin-top: 15px;
+            font-size: 0.95rem;
+            display: none;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .success { background-color: #d4edda; color: #155724; }
+        .error { background-color: #f8d7da; color: #721c24; }
     </style>
 </head>
 <body>
@@ -63,26 +75,85 @@
         <h2>Create an Account 🌾</h2>
         <p style="color: #666; margin-bottom: 25px;">Join the Mkulima Direct community.</p>
         
-        <form action="#" method="POST">
-            <input type="text" placeholder="Full Name" required>
-            <input type="text" placeholder="Phone Number" required>
+        <form id="registerForm">
+            <input type="text" id="fullName" placeholder="Full Name" required>
+            <input type="text" id="phone" placeholder="Phone Number" required>
             
-            <select required>
+            <select id="role" required>
                 <option value="" disabled selected>Select your role...</option>
                 <option value="farmer">I am a Farmer</option>
                 <option value="buyer">I am a Buyer</option>
             </select>
 
-            <input type="password" placeholder="Create Password" required>
+            <input type="password" id="password" placeholder="Create Password" required>
             
             <button type="submit">Sign Up</button>
         </form>
+
+        <div id="status-message"></div>
 
         <div class="links">
             <p>Already have an account? <a href="login.html">Log In here</a>.</p>
             <p><a href="../index.html">← Back to Home</a></p>
         </div>
     </div>
+
+    <script>
+        const registerForm = document.getElementById('registerForm');
+        const statusMessage = document.getElementById('status-message');
+
+        registerForm.addEventListener('submit', async function(event) {
+            event.preventDefault(); // Stop the page from reloading
+
+            // 1. Gather the data from the form
+            const userData = {
+                fullName: document.getElementById('fullName').value,
+                phone: document.getElementById('phone').value,
+                role: document.getElementById('role').value,
+                password: document.getElementById('password').value
+            };
+
+            // 2. Show a loading message
+            statusMessage.style.display = 'block';
+            statusMessage.className = '';
+            statusMessage.textContent = 'Creating account...';
+
+            try {
+                // 3. Send the data to your Python Flask API
+                const response = await fetch('http://localhost:5000/api/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(userData)
+                });
+
+                const result = await response.json();
+
+                // 4. Handle the response
+                if (response.ok) {
+                    statusMessage.className = 'success';
+                    statusMessage.textContent = 'Registration successful! Redirecting to login...';
+                    
+                    // Clear the form
+                    registerForm.reset();
+                    
+                    // Redirect to login page after 2 seconds
+                    setTimeout(() => {
+                        window.location.href = 'login.html';
+                    }, 2000);
+                } else {
+                    // Show error from the server (e.g., "Phone number already registered")
+                    statusMessage.className = 'error';
+                    statusMessage.textContent = result.error || 'Registration failed.';
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                statusMessage.className = 'error';
+                statusMessage.textContent = 'Cannot connect to the server. Is your Python API running?';
+            }
+        });
+    </script>
 
 </body>
 </html>
