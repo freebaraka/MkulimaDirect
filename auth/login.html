@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mkulima Direct | Login</title>
     <style>
-        /* Exact same styles as register.html to keep it simple */
         :root {
             --primary-color: #2E8B57;
             --secondary-color: #1E5631;
@@ -56,6 +55,14 @@
         .links { margin-top: 20px; font-size: 0.9rem; }
         .links a { color: var(--primary-color); text-decoration: none; }
         .links a:hover { text-decoration: underline; }
+        
+        /* New style for the error message */
+        #error-message {
+            color: #d9534f;
+            margin-top: 10px;
+            font-size: 0.9rem;
+            display: none; /* Hidden by default */
+        }
     </style>
 </head>
 <body>
@@ -64,11 +71,13 @@
         <h2>Welcome Back! 🚜</h2>
         <p style="color: #666; margin-bottom: 25px;">Log in to manage your marketplace.</p>
         
-        <form action="#" method="POST">
-            <input type="text" placeholder="Phone Number" required>
-            <input type="password" placeholder="Password" required>
+        <form id="loginForm">
+            <input type="text" id="phone" placeholder="Phone Number" required>
+            <input type="password" id="password" placeholder="Password" required>
             
             <button type="submit">Log In</button>
+            
+            <p id="error-message">Invalid phone number or password.</p>
         </form>
 
         <div class="links">
@@ -76,6 +85,37 @@
             <p><a href="../index.html">← Back to Home</a></p>
         </div>
     </div>
+
+    <script>
+        // Grab the form element from the page
+        const loginForm = document.getElementById('loginForm');
+        const errorMessage = document.getElementById('error-message');
+
+        // Listen for when the user clicks the Log In button
+        loginForm.addEventListener('submit', function(event) {
+            // Prevent the form from refreshing the page immediately
+            event.preventDefault();
+
+            // Get what the user typed in
+            const phoneValue = document.getElementById('phone').value;
+            const passwordValue = document.getElementById('password').value;
+
+            // 1. Check if it is the Farmer
+            if (phoneValue === '1234' && passwordValue === 'abcd') {
+                // Redirect to the farmer dashboard
+                window.location.href = '../farmer/dashboard.html';
+            } 
+            // 2. Check if it is the Buyer
+            else if (phoneValue === '6789' && passwordValue === 'wxyz') {
+                // Redirect to the buyer dashboard
+                window.location.href = '../buyer/dashboard.html';
+            } 
+            // 3. If neither match, show the error message
+            else {
+                errorMessage.style.display = 'block';
+            }
+        });
+    </script>
 
 </body>
 </html>
