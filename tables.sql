@@ -1,3 +1,6 @@
+CREATE DATABASE mkulima;
+\c mkulima;
+
 -- 1. FARMER TABLE
 CREATE TABLE farmer (
     farmer_id SERIAL PRIMARY KEY,
@@ -87,3 +90,5 @@ CREATE TABLE payments (
     payment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (order_id) REFERENCES orders(order_id) ON DELETE CASCADE
 );
+
+\dt -- to show all tables in the database
