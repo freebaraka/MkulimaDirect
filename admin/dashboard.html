@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Command Center | Mkulima Direct</title>
+    <style>
+        :root {
+            --primary-color: #2bba5c;
+            --secondary-color: #1a6e38;
+            --bg-color: #f3f4f6; /* Slightly darker gray for admin feel */
+            --sidebar-bg: #111827; /* Dark mode sidebar */
+            --text-dark: #1f2937;
+            --text-light: #ffffff;
+            --danger-color: #ef4444;
+            --sidebar-width: 260px;
+        }
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        /* Dark Sidebar Styles */
+        .sidebar {
+            width: var(--sidebar-width);
+            background-color: var(--sidebar-bg);
+            color: var(--text-light);
+            display: flex;
+            flex-direction: column;
+            padding-top: 30px;
+            box-shadow: 4px 0 15px rgba(0,0,0,0.1);
+        }
+        .sidebar h2 {
+            text-align: center;
+            color: var(--primary-color);
+            margin-bottom: 40px;
+            letter-spacing: 1px;
+        }
+        .sidebar a {
+            text-decoration: none;
+            color: #9ca3af;
+            padding: 16px 30px;
+            font-weight: 500;
+            transition: all 0.3s;
+            border-left: 4px solid transparent;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .sidebar a:hover, .sidebar a.active {
+            background-color: rgba(255,255,255,0.05);
+            border-left-color: var(--primary-color);
+            color: var(--text-light);
+        }
+        .logout { margin-top: auto; margin-bottom: 30px; color: var(--danger-color) !important; }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            padding: 40px;
+            overflow-y: auto;
+        }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; }
+        .header h1 { margin: 0; color: var(--text-dark); font-size: 2.2rem; }
+        
+        /* High-Level Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 25px;
+            margin-bottom: 40px;
+        }
+        .stat-card {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.02);
+            border-left: 5px solid var(--primary-color);
+        }
+        .stat-card h3 { margin: 0; font-size: 2.5rem; color: var(--text-dark); }
+        .stat-card p { margin: 5px 0 0; color: #6b7280; font-weight: 600; text-transform: uppercase; font-size: 0.85rem; }
+
+        /* Modern Data Table */
+        .table-container {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.02);
+        }
+        .table-container h2 { margin-top: 0; color: var(--text-dark); margin-bottom: 20px; }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+        th {
+            background-color: #f9fafb;
+            padding: 15px;
+            color: #6b7280;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.85rem;
+            border-bottom: 2px solid #e5e7eb;
+        }
+        td {
+            padding: 15px;
+            border-bottom: 1px solid #e5e7eb;
+            color: var(--text-dark);
+            font-weight: 500;
+        }
+        tr:hover { background-color: #f9fafb; }
+        
+        .badge {
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: bold;
+        }
+        .badge-farmer { background-color: #d1fae5; color: #065f46; }
+        .badge-buyer { background-color: #dbeafe; color: #1e40af; }
+
+        /* Action Buttons */
+        .btn-delete {
+            background-color: var(--danger-color);
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.3s;
+        }
+        .btn-delete:hover { background-color: #dc2626; }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <h2>⚙️ SYSTEM ADMIN</h2>
+        <a href="#" class="active">📊 Dashboard Overview</a>
+        <a href="#">👥 Manage Users</a>
+        <a href="#">📦 Active Produce</a>
+        <a href="#">💳 Transactions</a>
+        <a href="#">⚙️ System Settings</a>
+        <a href="../index.html" class="logout">🚪 Secure Log Out</a>
+    </div>
+
+    <div class="main-content">
+        <div class="header">
+            <h1>Platform Overview</h1>
+            <p style="color: #6b7280; font-weight: 500;">Live data feed</p>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3 id="stat-total-users">...</h3>
+                <p>Total Registered Users</p>
+            </div>
+            <div class="stat-card">
+                <h3 id="stat-total-produce">...</h3>
+                <p>Produce Listings</p> 
+            </div>
+            <div class="stat-card">
+                <h3 id="stat-total-revenue" style="color: var(--primary-color);">NULL</h3>
+                <p>Total Revenue Processed</p>
+            </div>
+        </div>
+
+        <div class="table-container">
+            <h2>Recent User Registrations</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Full Name</th>
+                        <th>Role</th>
+                        <th>Phone Number</th>
+                        <th>Joined Date</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="user-table-body">
+                    <tr id="row-0712345678">
+                        <td>John Doe</td>
+                        <td><span class="badge badge-farmer">Farmer</span></td>
+                        <td>0712345678</td>
+                        <td>Just now</td>
+                        <td>
+                            <button class="btn-delete" onclick="deleteUser('0712345678', 'farmer')">Delete</button>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Jane Smith</td>
+                        <td><span class="badge badge-buyer">Buyer</span></td>
+                        <td>0798765432</td>
+                        <td>2 hours ago</td>
+                        <td>
+                            <button class="btn-delete" onclick="deleteUser('0798765432', 'buyer')">Delete</button>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        async function deleteUser(phoneNumber, role) {
+            // 1. Ask the admin to confirm before deleting
+            const isConfirmed = confirm(`Are you absolutely sure you want to delete the ${role} with phone number ${phoneNumber}? This cannot be undone.`);
+            
+            if (!isConfirmed) {
+                return; // Stop here if they click "Cancel"
+            }
+
+            try {
+                // 2. Send the DELETE request to your Python API
+                // Note: Make sure your Python API has the delete route we wrote earlier!
+                const response = await fetch(`http://localhost:5000/api/${role}/${phoneNumber}`, {
+                    method: 'DELETE'
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    alert(result.message); // Show success message
+                    
+                    // Visually remove the row from the HTML table so it disappears instantly
+                    const rowToRemove = document.getElementById(`row-${phoneNumber}`);
+                    if (rowToRemove) {
+                        rowToRemove.remove();
+                    }
+                } else {
+                    alert('Error: ' + result.error);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Cannot connect to the server. Is your Python API running?');
+            }
+        }
+        // Run this instantly when the page loads
+        document.addEventListener('DOMContentLoaded', async () => {
+            const tableBody = document.getElementById('user-table-body');
+            
+            // Show a temporary loading message
+            tableBody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 20px;">Loading live database feed... ⏳</td></tr>';
+
+            try {
+                // Fetch the master user list from Python
+                const response = await fetch('http://localhost:5000/api/users');
+                const users = await response.json();
+
+                // Clear the loading message
+                tableBody.innerHTML = '';
+
+                if (users.length === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 20px;">No users found in the database.</td></tr>';
+                    return;
+                }
+
+                // Loop through every single user and build a table row for them
+                users.forEach(user => {
+                    // Assign the correct color badge based on their role
+                    const badgeClass = user.role === 'farmer' ? 'badge-farmer' : 'badge-buyer';
+                    const roleCapitalized = user.role.charAt(0).toUpperCase() + user.role.slice(1);
+
+                    // Create the HTML for the row
+                    const row = document.createElement('tr');
+                    row.id = `row-${user.phone}`;
+                    row.innerHTML = `
+                        <td>${user.fullName}</td>
+                        <td><span class="badge ${badgeClass}">${roleCapitalized}</span></td>
+                        <td>${user.phone}</td>
+                        <td>${user.joinedDate}</td>
+                        <td>
+                            <button class="btn-delete" onclick="deleteUser('${user.phone}', '${user.role}')">Delete</button>
+                        </td>
+                    `;
+                    
+                    // Add the row to the table!
+                    tableBody.appendChild(row);
+                });
+            } catch (error) {
+                console.error('Error fetching users:', error);
+                tableBody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: red;">Failed to connect to the server. Is Python running?</td></tr>';
+            }
+            // Fetch Dashboard Stats
+            try {
+                const statsResponse = await fetch('http://localhost:5000/api/admin/stats');
+                const stats = await statsResponse.json();
+                
+                // Inject the live data into the HTML cards
+                document.getElementById('stat-total-users').textContent = stats.totalUsers;
+                document.getElementById('stat-total-produce').textContent = stats.totalProduce;
+                document.getElementById('stat-total-revenue').textContent = stats.totalRevenue === null ? 'NULL' : `KSh ${stats.totalRevenue}`;
+            } catch (error) {
+                console.error("Failed to load top stats:", error);
+                document.getElementById('stat-total-users').textContent = "Error";
+                document.getElementById('stat-total-produce').textContent = "Error";
+            }
+            
+        });
+    </script>
+
+</body>
+</html>

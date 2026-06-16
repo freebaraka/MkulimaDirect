@@ -98,7 +98,81 @@ def login_user():
     finally:
         cursor.close()
         conn.close()
+# ----------------------------------------------------
+# ROUTE 3: GET ALL USERS (For the Admin Dashboard)
+# ----------------------------------------------------
+@app.route('/api/users', methods=['GET'])
+def get_all_users():
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
 
+    try:
+        cursor = conn.cursor()
+        
+        # We use UNION ALL to combine the farmer and buyer tables into one big list!
+        # We also sort them so the newest users appear at the top.
+        query = """
+            SELECT full_name, 'farmer' as role, phone_number, joined_date FROM farmer
+            UNION ALL
+            SELECT full_name, 'buyer' as role, phone_number, joined_date FROM buyer
+            ORDER BY joined_date DESC;
+        """
+        cursor.execute(query)
+        users = cursor.fetchall()
+
+        # Format the raw database data into a clean list of dictionaries
+        user_list = []
+        for user in users:
+            user_list.append({
+                "fullName": user[0],
+                "role": user[1],
+                "phone": user[2],
+                # Format the timestamp so it looks nice (e.g., "2026-06-16 11:30")
+                "joinedDate": user[3].strftime("%Y-%m-%d %H:%M") if user[3] else "Unknown"
+            })
+
+        return jsonify(user_list), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+    # ----------------------------------------------------
+# ROUTE 4: GET DASHBOARD STATS (For Admin)
+# ----------------------------------------------------
+@app.route('/api/admin/stats', methods=['GET'])
+def get_admin_stats():
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+
+        # 1. Count Total Users (Farmers + Buyers)
+        cursor.execute("SELECT (SELECT COUNT(*) FROM farmer) + (SELECT COUNT(*) FROM buyer);")
+        total_users = cursor.fetchone()[0]
+
+        # 2. Count Total Produce Listings
+        cursor.execute("SELECT COUNT(*) FROM produce;")
+        total_produce = cursor.fetchone()[0]
+
+        # 3. Revenue set to NULL as requested
+        total_revenue = None
+
+        return jsonify({
+            "totalUsers": total_users,
+            "totalProduce": total_produce,
+            "totalRevenue": total_revenue
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
 # ----------------------------------------------------
 # START THE SERVER
 # ----------------------------------------------------
