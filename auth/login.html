@@ -86,32 +86,47 @@
         </div>
     </div>
 
-    <script>
-        // Grab the form element from the page
+<script>
         const loginForm = document.getElementById('loginForm');
         const errorMessage = document.getElementById('error-message');
 
-        // Listen for when the user clicks the Log In button
-        loginForm.addEventListener('submit', function(event) {
-            // Prevent the form from refreshing the page immediately
-            event.preventDefault();
+        loginForm.addEventListener('submit', async function(event) {
+            event.preventDefault(); // Stop page refresh
 
-            // Get what the user typed in
             const phoneValue = document.getElementById('phone').value;
             const passwordValue = document.getElementById('password').value;
 
-            // 1. Check if it is the Farmer
-            if (phoneValue === '1234' && passwordValue === 'abcd') {
-                // Redirect to the farmer dashboard
-                window.location.href = '../farmer/dashboard.html';
-            } 
-            // 2. Check if it is the Buyer
-            else if (phoneValue === '6789' && passwordValue === 'wxyz') {
-                // Redirect to the buyer dashboard
-                window.location.href = '../buyer/dashboard.html';
-            } 
-            // 3. If neither match, show the error message
-            else {
+            // Hide the error message while checking
+            errorMessage.style.display = 'none';
+
+            try {
+                // Send the login request to the Python backend
+                const response = await fetch('http://localhost:5000/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        phone: phoneValue,
+                        password: passwordValue
+                    })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    // Success! Redirect based on the role the server found
+                    if (result.role === 'farmer') {
+                        window.location.href = '../farmer/dashboard.html';
+                    } else if (result.role === 'buyer') {
+                        window.location.href = '../buyer/dashboard.html';
+                    }
+                } else {
+                    // Show the error message (e.g., "Invalid phone number")
+                    errorMessage.textContent = result.error;
+                    errorMessage.style.display = 'block';
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                errorMessage.textContent = 'Cannot connect to the server. Is it running?';
                 errorMessage.style.display = 'block';
             }
         });
