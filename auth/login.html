@@ -56,12 +56,11 @@
         .links a { color: var(--primary-color); text-decoration: none; }
         .links a:hover { text-decoration: underline; }
         
-        /* New style for the error message */
         #error-message {
             color: #d9534f;
             margin-top: 10px;
             font-size: 0.9rem;
-            display: none; /* Hidden by default */
+            display: none; 
         }
     </style>
 </head>
@@ -72,12 +71,12 @@
         <p style="color: #666; margin-bottom: 25px;">Log in to manage your marketplace.</p>
         
         <form id="loginForm">
-            <input type="text" id="phone" placeholder="Phone Number" required>
+            <input type="text" id="name" placeholder="Full Name" required>
             <input type="password" id="password" placeholder="Password" required>
             
             <button type="submit">Log In</button>
             
-            <p id="error-message">Invalid phone number or password.</p>
+            <p id="error-message">Invalid name or password.</p>
         </form>
 
         <div class="links">
@@ -91,21 +90,20 @@
         const errorMessage = document.getElementById('error-message');
 
         loginForm.addEventListener('submit', async function(event) {
-            event.preventDefault(); // Stop page refresh
+            event.preventDefault(); 
 
-            const phoneValue = document.getElementById('phone').value;
+            // Extract the name instead of the phone number
+            const nameValue = document.getElementById('name').value;
             const passwordValue = document.getElementById('password').value;
 
-            // Hide the error message while checking
             errorMessage.style.display = 'none';
 
             try {
-                // Send the login request to the Python backend
                 const response = await fetch('http://localhost:5000/api/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        phone: phoneValue,
+                        name: nameValue, // Sending the name to the backend
                         password: passwordValue
                     })
                 });
@@ -113,14 +111,12 @@
                 const result = await response.json();
 
                 if (response.ok) {
-                    // Success! Redirect based on the role the server found
                     if (result.role === 'farmer') {
                         window.location.href = '../farmer/dashboard.html';
                     } else if (result.role === 'buyer') {
                         window.location.href = '../buyer/dashboard.html';
                     }
                 } else {
-                    // Show the error message (e.g., "Invalid phone number")
                     errorMessage.textContent = result.error;
                     errorMessage.style.display = 'block';
                 }

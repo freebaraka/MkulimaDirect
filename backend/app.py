@@ -57,16 +57,17 @@ def register_user():
 
 
 # ----------------------------------------------------
-# ROUTE 2: LOGIN (This is where the new code goes!)
+# ROUTE 2: LOGIN 
 # ----------------------------------------------------
 @app.route('/api/login', methods=['POST'])
 def login_user():
     data = request.json
-    phone = data.get('phone')
+    name = data.get('name') 
     password = data.get('password')
 
-    if not phone or not password:
-        return jsonify({"error": "Phone and password are required!"}), 400
+    # THE FIX IS HERE: It must check for 'name', not 'phone'
+    if not name or not password:
+        return jsonify({"error": "Full Name and password are required!"}), 400
 
     conn = get_db_connection()
     if not conn:
@@ -76,31 +77,27 @@ def login_user():
         cursor = conn.cursor()
 
         # 1. Check if the user is a Farmer
-        cursor.execute("SELECT password_hash FROM farmer WHERE phone_number = %s", (phone,))
+        cursor.execute("SELECT password_hash FROM farmer WHERE full_name = %s", (name,))
         farmer = cursor.fetchone()
         
-        # If found, check if the typed password matches the saved hash
         if farmer and check_password_hash(farmer[0], password):
             return jsonify({"message": "Login successful!", "role": "farmer"}), 200
 
         # 2. Check if the user is a Buyer
-        cursor.execute("SELECT password_hash FROM buyer WHERE phone_number = %s", (phone,))
+        cursor.execute("SELECT password_hash FROM buyer WHERE full_name = %s", (name,))
         buyer = cursor.fetchone()
         
         if buyer and check_password_hash(buyer[0], password):
             return jsonify({"message": "Login successful!", "role": "buyer"}), 200
 
-        # 3. If neither matched, the credentials are wrong
-        return jsonify({"error": "Invalid phone number or password."}), 401
+        # 3. If neither matched
+        return jsonify({"error": "Invalid name or password."}), 401
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     finally:
-        # We put this in a 'finally' block to ensure the database connection 
-        # always closes, even if an error happens!
         cursor.close()
         conn.close()
-
 
 # ----------------------------------------------------
 # START THE SERVER
