@@ -646,6 +646,47 @@ def get_buyer_orders(buyer_name):
         cursor.close()
         conn.close()
 # ----------------------------------------------------
+# ROUTE 14: ADMIN DASHBOARD STATS
+# ----------------------------------------------------
+@app.route('/api/admin/stats', methods=['GET'])
+def get_admin_stats():
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+
+        # Count total farmers
+        cursor.execute("SELECT COUNT(*) FROM farmer")
+        total_farmers = cursor.fetchone()[0]
+
+        # Count total buyers
+        cursor.execute("SELECT COUNT(*) FROM buyer")
+        total_buyers = cursor.fetchone()[0]
+
+        # Count total active produce listings
+        cursor.execute("SELECT COUNT(*) FROM produce")
+        total_produce = cursor.fetchone()[0]
+
+        # Calculate total money moved through the platform
+        cursor.execute("SELECT COALESCE(SUM(total_amount), 0) FROM orders WHERE order_status != 'Cancelled'")
+        total_revenue = cursor.fetchone()[0]
+
+        return jsonify({
+            "totalUsers": total_farmers + total_buyers,
+            "totalFarmers": total_farmers,
+            "totalBuyers": total_buyers,
+            "totalProduce": total_produce,
+            "totalRevenue": float(total_revenue)
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+# ----------------------------------------------------
 # START THE SERVER
 # ----------------------------------------------------
 if __name__ == '__main__':
