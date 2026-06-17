@@ -583,6 +583,69 @@ def get_farmer_orders(farmer_name):
         cursor.close()
         conn.close()    
 # ----------------------------------------------------
+# ROUTE 13: BUYER ORDER HISTORY
+# ----------------------------------------------------
+@app.route('/api/buyer/orders/<buyer_name>', methods=['GET'])
+def get_buyer_orders(buyer_name):
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+
+        # 1. Get the Buyer ID
+        cursor.execute("SELECT buyer_id FROM buyer WHERE full_name = %s", (buyer_name,))
+        buyer = cursor.fetchone()
+        if not buyer:
+            return jsonify({"error": "Buyer not found."}), 404
+        buyer_id = buyer[0]
+
+        # 2. Fetch ALL order details linked to this buyer
+        # We join with the farmer table so the buyer knows who to contact for delivery!
+        query = """
+            SELECT 
+                o.order_id, 
+                TO_CHAR(o.order_date, 'YYYY-MM-DD HH24:MI'), 
+                p.name, 
+                od.quantity, 
+                p.unit_type,
+                od.subtotal, 
+                f.full_name, 
+                f.phone_number, 
+                o.order_status
+            FROM orders o
+            JOIN order_details od ON o.order_id = od.order_id
+            JOIN produce p ON od.produce_id = p.produce_id
+            JOIN farmer f ON p.farmer_id = f.farmer_id
+            WHERE o.buyer_id = %s
+            ORDER BY o.order_date DESC;
+        """
+        cursor.execute(query, (buyer_id,))
+        orders = cursor.fetchall()
+
+        order_list = []
+        for order in orders:
+            order_list.append({
+                "orderId": order[0],
+                "date": order[1],
+                "produceName": order[2],
+                "quantity": order[3],
+                "unit": order[4],
+                "subtotal": order[5],
+                "farmerName": order[6],
+                "farmerPhone": order[7],
+                "status": order[8]
+            })
+
+        return jsonify(order_list), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+# ----------------------------------------------------
 # START THE SERVER
 # ----------------------------------------------------
 if __name__ == '__main__':

@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order History | Mkulima Direct</title>
+    <style>
+        :root {
+            --primary-color: #2E8B57; 
+            --bg-color: #ffffff;
+            --sidebar-bg: #f9f9f9;
+            --text-dark: #333333;
+            --border-color: #e0e0e0;
+            --danger-color: #d9534f;
+            --sidebar-width: 250px;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, Helvetica, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-dark);
+            display: flex;
+            height: 100vh;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: var(--sidebar-width); background-color: var(--sidebar-bg);
+            border-right: 1px solid var(--border-color); display: flex;
+            flex-direction: column; padding-top: 20px;
+        }
+        .sidebar h2 { text-align: center; color: var(--primary-color); margin-bottom: 30px; font-size: 1.3rem; }
+        .sidebar a {
+            text-decoration: none; color: var(--text-dark); padding: 15px 25px;
+            font-weight: bold; border-left: 4px solid transparent;
+        }
+        .sidebar a:hover, .sidebar a.active {
+            background-color: #eeeeee; border-left-color: var(--primary-color); color: var(--primary-color);
+        }
+        .logout { margin-top: auto; margin-bottom: 20px; color: var(--danger-color) !important; }
+
+        /* Main Content */
+        .main-content { flex: 1; padding: 40px; overflow-y: auto; }
+        .header { 
+            display: flex; justify-content: space-between; align-items: center; 
+            margin-bottom: 30px; border-bottom: 1px solid var(--border-color); padding-bottom: 20px;
+        }
+        .header h1 { margin: 0; color: var(--primary-color); font-size: 1.8rem; }
+
+        /* Clean Table */
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { padding: 15px; text-align: left; border-bottom: 1px solid var(--border-color); font-size: 0.95rem; }
+        th { background-color: #f9f9f9; color: #666; text-transform: uppercase; font-size: 0.85rem; font-weight: bold; }
+        
+        .status-badge { padding: 5px 10px; border-radius: 4px; font-weight: bold; font-size: 0.85rem; }
+        .status-pending { background-color: #fff3cd; color: #856404; }
+        .status-delivered { background-color: #d4edda; color: #155724; }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <h2>Buyer Panel</h2>
+        <a href="dashboard.html">Marketplace</a>
+        <a href="cart.html">My Cart</a>
+        <a href="order-history.html" class="active">Order History</a>
+        <a href="#">Account Settings</a>
+        <a href="../index.html" class="logout">Log Out</a>
+    </div>
+
+    <div class="main-content">
+        <div class="header">
+            <h1>My Past Orders</h1>
+            <span id="buyer-greeting" style="font-weight: bold; color: #666;"></span>
+        </div>
+
+        <div id="orders-container">
+            <p style="color: #666;">Loading your order history...</p>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            const buyerName = prompt("Please confirm your Buyer Name to view your history:");
+            
+            if (!buyerName) {
+                document.getElementById('orders-container').innerHTML = '<p>Please refresh and enter your name to view history.</p>';
+                return;
+            }
+
+            document.getElementById('buyer-greeting').textContent = `Buyer: ${buyerName}`;
+            fetchHistory(buyerName);
+        });
+
+        async function fetchHistory(buyerName) {
+            const container = document.getElementById('orders-container');
+
+            try {
+                const response = await fetch(`http://localhost:5000/api/buyer/orders/${buyerName}`);
+                const orders = await response.json();
+
+                if (!response.ok) {
+                    container.innerHTML = `<p style="color: red;">${orders.error}</p>`;
+                    return;
+                }
+
+                if (orders.length === 0) {
+                    container.innerHTML = '<p>You have not placed any orders yet. <a href="dashboard.html" style="color: #2E8B57;">Browse the market!</a></p>';
+                    return;
+                }
+
+                let html = `
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Order #</th>
+                                <th>Date</th>
+                                <th>Item</th>
+                                <th>Qty</th>
+                                <th>Total Paid</th>
+                                <th>Farmer Info</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+
+                orders.forEach(order => {
+                    const statusClass = order.status === 'Pending' ? 'status-pending' : 'status-delivered';
+                    
+                    html += `
+                        <tr>
+                            <td><strong>#${order.orderId}</strong></td>
+                            <td style="color: #666;">${order.date}</td>
+                            <td style="font-weight: bold; color: var(--primary-color);">${order.produceName}</td>
+                            <td>${order.quantity} ${order.unit}</td>
+                            <td style="font-weight: bold;">KSh ${order.subtotal}</td>
+                            <td>
+                                ${order.farmerName}<br>
+                                <span style="color: #666; font-size: 0.85rem;">Phone: ${order.farmerPhone}</span>
+                            </td>
+                            <td><span class="status-badge ${statusClass}">${order.status}</span></td>
+                        </tr>
+                    `;
+                });
+
+                html += `
+                        </tbody>
+                    </table>
+                `;
+
+                container.innerHTML = html;
+
+            } catch (error) {
+                console.error('Error:', error);
+                container.innerHTML = '<p style="color: red;">Failed to connect to the server.</p>';
+            }
+        }
+    </script>
+
+</body>
+</html>
