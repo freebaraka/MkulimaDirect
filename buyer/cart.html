@@ -164,7 +164,7 @@
                     </table>
                     <div class="checkout-box">
                         <h2>Grand Total: <span style="color: #2E8B57;">KSh ${data.grandTotal}</span></h2>
-                        <button class="btn-checkout" onclick="alert('Checkout system coming next!')">Proceed to Checkout</button>
+                        <button class="btn-checkout" onclick="processCheckout('${buyerName}')">Confirm & Pay</button>
                     </div>
                 `;
 
@@ -190,6 +190,37 @@
                 }
             } catch (error) {
                 alert("Server connection error.");
+            }
+        }
+        async function processCheckout(buyerName) {
+            if (!confirm("Are you ready to place this order?")) return;
+
+            try {
+                // Change the button text to show it's working
+                const btn = document.querySelector('.btn-checkout');
+                btn.textContent = "Processing...";
+                btn.disabled = true;
+
+                const response = await fetch('http://localhost:5000/api/checkout', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ buyerName: buyerName })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    alert("🎉 " + result.message);
+                    // Refresh the cart (it should now be empty!)
+                    fetchCart(buyerName);
+                } else {
+                    alert("Error: " + result.error);
+                    btn.textContent = "Confirm & Pay";
+                    btn.disabled = false;
+                }
+            } catch (error) {
+                console.error("Checkout error:", error);
+                alert("Cannot connect to the server to process checkout.");
             }
         }
     </script>

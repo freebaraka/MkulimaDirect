@@ -311,7 +311,7 @@ def add_to_cart():
     finally:
         cursor.close()
         conn.close()    
-    # ----------------------------------------------------
+# ----------------------------------------------------
 # ROUTE 8: VIEW CART (Buyer Dashboard)
 # ----------------------------------------------------
 @app.route('/api/cart/<buyer_name>', methods=['GET'])
@@ -381,6 +381,85 @@ def remove_from_cart(cart_id):
         conn.commit()
         return jsonify({"message": "Item removed from cart"}), 200
     except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+# ----------------------------------------------------
+# ROUTE 10: PROCESS CHECKOUT (Buyer Dashboard)
+# ----------------------------------------------------
+@app.route('/api/checkout', methods=['POST'])
+def process_checkout():
+    data = request.json
+    buyer_name = data.get('buyerName')
+
+    if not buyer_name:
+        return jsonify({"error": "Buyer name is required"}), 400
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+
+        # 1. Get the Buyer ID
+        cursor.execute("SELECT buyer_id FROM buyer WHERE full_name = %s", (buyer_name,))
+        buyer = cursor.fetchone()
+        if not buyer:
+            return jsonify({"error": "Buyer not found."}), 404
+        buyer_id = buyer[0]
+
+        # 2. Fetch all items currently in this buyer's cart
+        cursor.execute("""
+            SELECT c.produce_id, c.quantity, p.price_per_unit 
+            FROM cart c
+            JOIN produce p ON c.produce_id = p.produce_id
+            WHERE c.buyer_id = %s
+        """, (buyer_id,))
+        cart_items = cursor.fetchall()
+
+        if not cart_items:
+            return jsonify({"error": "Your cart is empty!"}), 400
+
+        # Calculate the Grand Total
+        grand_total = sum(item[1] * item[2] for item in cart_items)
+
+        # 3. Create the Master Order in the `orders` table
+        cursor.execute("""
+            INSERT INTO orders (buyer_id, order_status, total_amount)
+            VALUES (%s, 'Pending', %s) RETURNING order_id
+        """, (buyer_id, grand_total))
+        order_id = cursor.fetchone()[0]
+
+        # 4. Move items from Cart to `order_details`
+        for item in cart_items:
+            produce_id, quantity, price = item
+            subtotal = quantity * price
+            cursor.execute("""
+                INSERT INTO order_details (order_id, produce_id, quantity, price_at_time_of_order, subtotal)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (order_id, produce_id, quantity, price, subtotal))
+            
+            # (Optional but cool: Subtract the quantity from the farmer's stock here!)
+            # cursor.execute("UPDATE produce SET stock_quantity = stock_quantity - %s WHERE produce_id = %s", (quantity, produce_id))
+
+        # 5. Create a Pending Payment record
+        cursor.execute("""
+            INSERT INTO payments (order_id, amount, payment_method, payment_status)
+            VALUES (%s, %s, 'M-Pesa (Pending)', 'Pending')
+        """, (order_id, grand_total))
+
+        # 6. Wipe the user's cart clean!
+        cursor.execute("DELETE FROM cart WHERE buyer_id = %s", (buyer_id,))
+
+        # Save all these steps to the database at the exact same time
+        conn.commit()
+        return jsonify({"message": f"Order #{order_id} placed successfully! Total: KSh {grand_total}"}), 201
+
+    except Exception as e:
+        # If any of the steps above fail, cancel ALL of them so the database doesn't break
+        conn.rollback() 
         return jsonify({"error": str(e)}), 500
     finally:
         cursor.close()
