@@ -311,6 +311,80 @@ def add_to_cart():
     finally:
         cursor.close()
         conn.close()    
+    # ----------------------------------------------------
+# ROUTE 8: VIEW CART (Buyer Dashboard)
+# ----------------------------------------------------
+@app.route('/api/cart/<buyer_name>', methods=['GET'])
+def view_cart(buyer_name):
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+
+        # 1. Find the buyer's ID
+        cursor.execute("SELECT buyer_id FROM buyer WHERE full_name = %s", (buyer_name,))
+        buyer = cursor.fetchone()
+
+        if not buyer:
+            return jsonify({"error": "Buyer not found."}), 404
+
+        buyer_id = buyer[0]
+
+        # 2. Get the cart items linked to this buyer
+        query = """
+            SELECT c.cart_id, p.name, p.price_per_unit, p.unit_type, c.quantity, (p.price_per_unit * c.quantity) as subtotal
+            FROM cart c
+            JOIN produce p ON c.produce_id = p.produce_id
+            WHERE c.buyer_id = %s
+            ORDER BY c.added_at DESC;
+        """
+        cursor.execute(query, (buyer_id,))
+        items = cursor.fetchall()
+
+        cart_list = []
+        grand_total = 0
+
+        for item in items:
+            subtotal = item[5]
+            grand_total += subtotal
+            cart_list.append({
+                "cartId": item[0],
+                "name": item[1],
+                "price": item[2],
+                "unit": item[3],
+                "quantity": item[4],
+                "subtotal": subtotal
+            })
+
+        return jsonify({"items": cart_list, "grandTotal": grand_total}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+# ----------------------------------------------------
+# ROUTE 9: REMOVE FROM CART
+# ----------------------------------------------------
+@app.route('/api/cart/<int:cart_id>', methods=['DELETE'])
+def remove_from_cart(cart_id):
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM cart WHERE cart_id = %s", (cart_id,))
+        conn.commit()
+        return jsonify({"message": "Item removed from cart"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
 # ----------------------------------------------------
 # START THE SERVER
 # ----------------------------------------------------

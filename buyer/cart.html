@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Cart | Mkulima Direct</title>
+    <style>
+        :root {
+            --primary-color: #2E8B57; 
+            --bg-color: #ffffff;
+            --sidebar-bg: #f9f9f9;
+            --text-dark: #333333;
+            --border-color: #e0e0e0;
+            --danger-color: #d9534f;
+            --sidebar-width: 250px;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, Helvetica, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-dark);
+            display: flex;
+            height: 100vh;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: var(--sidebar-width);
+            background-color: var(--sidebar-bg);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            padding-top: 20px;
+        }
+        .sidebar h2 { text-align: center; color: var(--primary-color); margin-bottom: 30px; font-size: 1.3rem; }
+        .sidebar a {
+            text-decoration: none; color: var(--text-dark); padding: 15px 25px;
+            font-weight: bold; border-left: 4px solid transparent;
+        }
+        .sidebar a:hover, .sidebar a.active {
+            background-color: #eeeeee; border-left-color: var(--primary-color); color: var(--primary-color);
+        }
+        .logout { margin-top: auto; margin-bottom: 20px; color: var(--danger-color) !important; }
+
+        /* Main Content */
+        .main-content { flex: 1; padding: 40px; overflow-y: auto; }
+        .header { 
+            display: flex; justify-content: space-between; align-items: center; 
+            margin-bottom: 30px; border-bottom: 1px solid var(--border-color); padding-bottom: 20px;
+        }
+        .header h1 { margin: 0; color: var(--primary-color); font-size: 1.8rem; }
+
+        /* Cart Table */
+        table {
+            width: 100%; border-collapse: collapse; margin-top: 20px;
+        }
+        th, td {
+            padding: 15px; text-align: left; border-bottom: 1px solid var(--border-color);
+        }
+        th { background-color: #f9f9f9; color: #666; font-size: 0.9rem; text-transform: uppercase; }
+        
+        .btn-remove {
+            background-color: transparent; color: var(--danger-color); border: 1px solid var(--danger-color);
+            padding: 5px 10px; border-radius: 4px; cursor: pointer; font-weight: bold;
+        }
+        .btn-remove:hover { background-color: var(--danger-color); color: white; }
+
+        /* Checkout Section */
+        .checkout-box {
+            margin-top: 30px; padding: 20px; border: 1px solid var(--border-color);
+            border-radius: 4px; text-align: right; background-color: #f9f9f9;
+        }
+        .checkout-box h2 { margin: 0 0 15px 0; color: var(--text-dark); }
+        .btn-checkout {
+            padding: 12px 25px; background-color: var(--primary-color); color: white;
+            border: none; border-radius: 4px; font-weight: bold; font-size: 1.1rem; cursor: pointer;
+        }
+        .btn-checkout:hover { opacity: 0.9; }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <h2>Buyer Panel</h2>
+        <a href="dashboard.html">Marketplace</a>
+        <a href="cart.html" class="active">My Cart</a>
+        <a href="#">Order History</a>
+        <a href="#">Account Settings</a>
+        <a href="../index.html" class="logout">Log Out</a>
+    </div>
+
+    <div class="main-content">
+        <div class="header">
+            <h1>Shopping Cart</h1>
+            <span id="buyer-greeting" style="font-weight: bold; color: #666;"></span>
+        </div>
+
+        <div id="cart-container">
+            <p>Loading your cart...</p>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Ask for the buyer's name to fetch their specific cart
+            const buyerName = prompt("Please confirm your Buyer Name to view your cart:");
+            
+            if (!buyerName) {
+                document.getElementById('cart-container').innerHTML = '<p>Please refresh and enter your name to view your cart.</p>';
+                return;
+            }
+
+            document.getElementById('buyer-greeting').textContent = `Buyer: ${buyerName}`;
+            fetchCart(buyerName);
+        });
+
+        async function fetchCart(buyerName) {
+            const container = document.getElementById('cart-container');
+
+            try {
+                const response = await fetch(`http://localhost:5000/api/cart/${buyerName}`);
+                const data = await response.json();
+
+                if (!response.ok) {
+                    container.innerHTML = `<p style="color: red;">${data.error}</p>`;
+                    return;
+                }
+
+                if (data.items.length === 0) {
+                    container.innerHTML = '<p>Your cart is currently empty. <a href="dashboard.html" style="color: #2E8B57;">Go to Marketplace</a></p>';
+                    return;
+                }
+
+                // Build the table
+                let html = `
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Produce</th>
+                                <th>Price</th>
+                                <th>Quantity</th>
+                                <th>Subtotal</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+
+                data.items.forEach(item => {
+                    html += `
+                        <tr id="cart-row-${item.cartId}">
+                            <td style="font-weight: bold;">${item.name}</td>
+                            <td>KSh ${item.price} / ${item.unit}</td>
+                            <td>${item.quantity}</td>
+                            <td style="font-weight: bold; color: #2E8B57;">KSh ${item.subtotal}</td>
+                            <td><button class="btn-remove" onclick="removeItem(${item.cartId}, '${buyerName}')">Remove</button></td>
+                        </tr>
+                    `;
+                });
+
+                html += `
+                        </tbody>
+                    </table>
+                    <div class="checkout-box">
+                        <h2>Grand Total: <span style="color: #2E8B57;">KSh ${data.grandTotal}</span></h2>
+                        <button class="btn-checkout" onclick="alert('Checkout system coming next!')">Proceed to Checkout</button>
+                    </div>
+                `;
+
+                container.innerHTML = html;
+
+            } catch (error) {
+                console.error('Error:', error);
+                container.innerHTML = '<p style="color: red;">Failed to connect to the server.</p>';
+            }
+        }
+
+        async function removeItem(cartId, buyerName) {
+            if (!confirm("Remove this item from your cart?")) return;
+
+            try {
+                const response = await fetch(`http://localhost:5000/api/cart/${cartId}`, { method: 'DELETE' });
+                
+                if (response.ok) {
+                    // Refresh the cart to update the grand total
+                    fetchCart(buyerName);
+                } else {
+                    alert("Failed to remove item.");
+                }
+            } catch (error) {
+                alert("Server connection error.");
+            }
+        }
+    </script>
+
+</body>
+</html>
