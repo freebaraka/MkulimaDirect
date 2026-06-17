@@ -121,6 +121,7 @@
                                 <th>Total Paid</th>
                                 <th>Farmer Info</th>
                                 <th>Status</th>
+                                <th>Action</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -141,6 +142,11 @@
                                 <span style="color: #666; font-size: 0.85rem;">Phone: ${order.farmerPhone}</span>
                             </td>
                             <td><span class="status-badge ${statusClass}">${order.status}</span></td>
+                            <td>
+                                <button onclick="submitRating('${buyerName}', '${order.farmerName}')" style="background: #2E8B57; color: #fff; border: none; padding: 8px 12px; border-radius: 5px; cursor: pointer;">
+                                    Rate Farmer
+                                </button>
+                            </td>
                         </tr>
                     `;
                 });
@@ -155,6 +161,40 @@
             } catch (error) {
                 console.error('Error:', error);
                 container.innerHTML = '<p style="color: red;">Failed to connect to the server.</p>';
+            }
+        }
+
+        async function submitRating(buyerName, farmerName) {
+            const rating = prompt(`Rate ${farmerName} from 1 to 5 (1 = Poor, 5 = Excellent):`);
+
+            if (!rating) return; // User cancelled
+
+            if (isNaN(rating) || rating < 1 || rating > 5) {
+                alert("Please enter a valid number between 1 and 5.");
+                return;
+            }
+
+            try {
+                const response = await fetch('http://localhost:5000/api/rate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        buyerName: buyerName,
+                        farmerName: farmerName,
+                        rating: rating
+                    })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    alert(result.message);
+                } else {
+                    alert("Error: " + result.error);
+                }
+            } catch (error) {
+                console.error("Rating error:", error);
+                alert("Could not connect to the server.");
             }
         }
     </script>

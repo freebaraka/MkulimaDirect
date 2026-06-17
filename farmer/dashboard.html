@@ -164,7 +164,10 @@
 
     <div class="main-content">
         <div class="header">
-            <h1>Welcome back, John!</h1>
+            <div>
+                <h1 id="farmer-greeting">Welcome back!</h1>
+                <p id="farmer-rating">Rating: -- / 5.0 (0 Reviews)</p>
+            </div>
             <a href="add-produce.html"><button>+ Add New Produce</button></a>
         </div>
 
@@ -200,11 +203,7 @@
                 return;
             }
 
-            // Update the greeting
-            const headerH1 = document.querySelector('.header h1');
-            if (headerH1) {
-                headerH1.textContent = `Welcome back, ${farmerName}!`;
-            }
+            document.getElementById('farmer-greeting').textContent = `Welcome back, ${farmerName}!`;
 
             try {
                 // Fetch stats from Python
@@ -218,6 +217,15 @@
                     document.getElementById('stat-earnings').textContent = `KSh ${formattedEarnings}`;
                     document.getElementById('stat-listings').textContent = stats.activeListings;
                     document.getElementById('stat-orders').textContent = stats.pendingOrders;
+
+                    // NEW: Inject the rating
+                    const ratingSpan = document.getElementById('farmer-rating');
+                    if (stats.totalReviews === 0) {
+                        ratingSpan.textContent = "Rating: No reviews yet";
+                        ratingSpan.style.color = "#666";
+                    } else {
+                        ratingSpan.textContent = `Rating: ${stats.averageRating} / 5.0 (${stats.totalReviews} Reviews)`;
+                    }
 
                     fetchFarmerOrders(farmerName);
                 } else {

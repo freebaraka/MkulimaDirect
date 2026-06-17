@@ -492,7 +492,7 @@ def process_checkout():
         cursor.close()
         conn.close()
 # ----------------------------------------------------
-# ROUTE 11: FARMER DASHBOARD STATS
+# ROUTE 11: FARMER DASHBOARD STATS (UPGRADED)
 # ----------------------------------------------------
 @app.route('/api/farmer/stats/<farmer_name>', methods=['GET'])
 def get_farmer_stats(farmer_name):
@@ -514,8 +514,7 @@ def get_farmer_stats(farmer_name):
         cursor.execute("SELECT COUNT(*) FROM produce WHERE farmer_id = %s", (farmer_id,))
         active_listings = cursor.fetchone()[0]
 
-        # 3. Calculate Total Earnings (Sum of subtotal from order_details for this farmer's produce)
-        # We only count orders that are NOT Cancelled
+        # 3. Calculate Total Earnings
         cursor.execute("""
             SELECT COALESCE(SUM(od.subtotal), 0)
             FROM order_details od
@@ -526,7 +525,6 @@ def get_farmer_stats(farmer_name):
         total_earnings = cursor.fetchone()[0]
 
         # 4. Count Pending Orders
-        # How many distinct orders contain at least one item from this farmer AND are 'Pending'
         cursor.execute("""
             SELECT COUNT(DISTINCT o.order_id)
             FROM orders o
@@ -536,10 +534,22 @@ def get_farmer_stats(farmer_name):
         """, (farmer_id,))
         pending_orders = cursor.fetchone()[0]
 
+        # 5. NEW: Calculate Average Rating and Total Reviews
+        cursor.execute("""
+            SELECT COALESCE(AVG(rating_value), 0), COUNT(rating_value)
+            FROM farmer_ratings
+            WHERE farmer_id = %s
+        """, (farmer_id,))
+        rating_data = cursor.fetchone()
+        avg_rating = round(float(rating_data[0]), 1) # Rounds to 1 decimal place (e.g., 4.5)
+        total_reviews = rating_data[1]
+
         return jsonify({
             "totalEarnings": float(total_earnings),
             "activeListings": active_listings,
-            "pendingOrders": pending_orders
+            "pendingOrders": pending_orders,
+            "averageRating": avg_rating,
+            "totalReviews": total_reviews
         }), 200
 
     except Exception as e:
@@ -668,6 +678,62 @@ def get_buyer_orders(buyer_name):
         return jsonify(order_list), 200
 
     except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+# ----------------------------------------------------
+# ROUTE 15: RATE A FARMER (Buyer Dashboard)
+# ----------------------------------------------------
+@app.route('/api/rate', methods=['POST'])
+def rate_farmer():
+    data = request.json
+    buyer_name = data.get('buyerName')
+    farmer_name = data.get('farmerName')
+    rating = data.get('rating')
+
+    if not all([buyer_name, farmer_name, rating]):
+        return jsonify({"error": "Missing rating data"}), 400
+
+    try:
+        rating_val = int(rating)
+        if rating_val < 1 or rating_val > 5:
+            return jsonify({"error": "Rating must be between 1 and 5."}), 400
+    except ValueError:
+        return jsonify({"error": "Invalid rating number."}), 400
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+        
+        # 1. Get the IDs for both users
+        cursor.execute("SELECT buyer_id FROM buyer WHERE full_name = %s", (buyer_name,))
+        buyer = cursor.fetchone()
+        
+        cursor.execute("SELECT farmer_id FROM farmer WHERE full_name = %s", (farmer_name,))
+        farmer = cursor.fetchone()
+
+        if not buyer or not farmer:
+            return jsonify({"error": "Could not find buyer or farmer in the database."}), 404
+            
+        b_id, f_id = buyer[0], farmer[0]
+
+        # 2. Insert the rating (or update it if they already rated this farmer)
+        cursor.execute("""
+            INSERT INTO farmer_ratings (farmer_id, buyer_id, rating_value)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (farmer_id, buyer_id) 
+            DO UPDATE SET rating_value = EXCLUDED.rating_value;
+        """, (f_id, b_id, rating_val))
+        
+        conn.commit()
+        return jsonify({"message": f"Success! You rated {farmer_name} {rating_val}/5."}), 200
+
+    except Exception as e:
+        conn.rollback()
         return jsonify({"error": str(e)}), 500
     finally:
         cursor.close()
