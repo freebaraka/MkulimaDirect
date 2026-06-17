@@ -5,7 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Farmer Dashboard | Mkulima Direct</title>
     <style>
-        /* Minimal Color Palette */
+        
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid var(--border-color); font-size: 0.95rem; }
+        th { background-color: #f9f9f9; color: #666; font-weight: bold; text-transform: uppercase; font-size: 0.85rem; }
+        .status-badge { padding: 5px 10px; border-radius: 4px; font-weight: bold; font-size: 0.85rem; }
+        .status-pending { background-color: #fff3cd; color: #856404; }
+        .status-delivered { background-color: #d4edda; color: #155724; }
+
         :root {
             --primary-color: #2E8B57; /* SeaGreen */
             --bg-color: #ffffff;
@@ -175,9 +182,11 @@
                 <p>Pending Orders</p>
             </div>
         </div>
-        <div class="recent-orders">
-            <h2>Recent Orders</h2>
-            <p style="color: #666;">You have 4 orders waiting to be shipped.</p>
+            <div class="recent-orders">
+                <h2>All Sales & Orders</h2>
+                    <div id="orders-container">
+                <p style="color: #666;">Loading order history...</p>
+            </div>
         </div>
     </div>
     <script>
@@ -209,6 +218,8 @@
                     document.getElementById('stat-earnings').textContent = `KSh ${formattedEarnings}`;
                     document.getElementById('stat-listings').textContent = stats.activeListings;
                     document.getElementById('stat-orders').textContent = stats.pendingOrders;
+
+                    fetchFarmerOrders(farmerName);
                 } else {
                     console.error("Server error:", stats.error);
                     document.getElementById('stat-earnings').textContent = "Error";
@@ -218,6 +229,72 @@
                 document.getElementById('stat-earnings').textContent = "Connection Error";
             }
         });
+        async function fetchFarmerOrders(farmerName) {
+            const container = document.getElementById('orders-container');
+
+            try {
+                const response = await fetch(`http://localhost:5000/api/farmer/orders/${farmerName}`);
+                const orders = await response.json();
+
+                if (!response.ok) {
+                    container.innerHTML = `<p style="color: red;">Error: ${orders.error}</p>`;
+                    return;
+                }
+
+                if (orders.length === 0) {
+                    container.innerHTML = '<p style="color: #666;">You have not received any orders yet. Keep listing fresh produce!</p>';
+                    return;
+                }
+
+                // Build the table
+                let html = `
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Order #</th>
+                                <th>Date</th>
+                                <th>Produce Sold</th>
+                                <th>Qty</th>
+                                <th>Earnings</th>
+                                <th>Buyer Info</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+
+                orders.forEach(order => {
+                    // Make a nice badge for the status
+                    const statusClass = order.status === 'Pending' ? 'status-pending' : 'status-delivered';
+                    
+                    html += `
+                        <tr>
+                            <td><strong>#${order.orderId}</strong></td>
+                            <td style="color: #666;">${order.date}</td>
+                            <td style="font-weight: bold; color: var(--primary-color);">${order.produceName}</td>
+                            <td>${order.quantity} ${order.unit}</td>
+                            <td style="font-weight: bold;">KSh ${order.subtotal}</td>
+                            <td>
+                                ${order.buyerName}<br>
+                                <span style="color: #666; font-size: 0.85rem;">📞 ${order.buyerPhone}</span>
+                            </td>
+                            <td><span class="status-badge ${statusClass}">${order.status}</span></td>
+                        </tr>
+                    `;
+                });
+
+                html += `
+                        </tbody>
+                    </table>
+                `;
+
+                container.innerHTML = html;
+
+            } catch (error) {
+                console.error("Fetch orders error:", error);
+                container.innerHTML = '<p style="color: red;">Failed to load orders from the server.</p>';
+            }
+        }
     </script>
 </body>
 </html>
