@@ -100,3 +100,14 @@ CREATE TABLE payments (
 --  To be able to store quantities depending on the type......
 ALTER TABLE produce 
 ALTER COLUMN stock_quantity TYPE VARCHAR(100);
+
+CREATE TABLE farmer_ratings (
+    rating_id SERIAL PRIMARY KEY,
+    farmer_id INT NOT NULL REFERENCES farmer(farmer_id) ON DELETE CASCADE,
+    buyer_id INT NOT NULL REFERENCES buyer(buyer_id) ON DELETE CASCADE,
+    rating_value INT NOT NULL CHECK (rating_value >= 1 AND rating_value <= 5),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (farmer_id, buyer_id) 
+);
+
+Select * from farmer;

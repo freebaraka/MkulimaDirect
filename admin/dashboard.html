@@ -76,12 +76,9 @@
 
         <div class="stats-grid">
             <div class="stat-box">
-                <h3 id="admin-revenue">...</h3>
-                <p>Total Platform Sales</p>
-            </div>
-            <div class="stat-box">
                 <h3 id="admin-users">...</h3>
                 <p>Total Registered Users</p>
+                <div id="users-breakdown" style="font-size: 0.8rem; color: #2E8B57; font-weight: bold; margin-top: 5px;"></div>
             </div>
             <div class="stat-box">
                 <h3 id="admin-produce">...</h3>
@@ -89,9 +86,11 @@
             </div>
         </div>
 
-        <div style="border: 1px solid var(--border-color); padding: 20px;">
-            <h2 style="margin-top: 0; font-size: 1.2rem; font-weight: normal;">Recent System Activity</h2>
-            <p style="color: #666; font-size: 0.9rem;">Activity logs will be displayed here.</p>
+        <div style="border: 1px solid var(--border-color); padding: 20px; background: #ffffff;">
+            <h2 style="margin-top: 0; font-size: 1.2rem; font-weight: normal; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">Recent System Activity</h2>
+            <div id="activity-feed">
+                <p style="color: #666; font-size: 0.9rem;">Fetching logs...</p>
+            </div>
         </div>
     </div>
 
@@ -102,15 +101,38 @@
                 const data = await response.json();
 
                 if (response.ok) {
-                    document.getElementById('admin-revenue').textContent = `KSh ${data.totalRevenue.toLocaleString()}`;
+                    // 1. Populate Stats
                     document.getElementById('admin-users').textContent = data.totalUsers;
                     document.getElementById('admin-produce').textContent = data.totalProduce;
+                    
+                    // 2. Populate User Breakdown
+                    document.getElementById('users-breakdown').textContent = 
+                        `${data.totalFarmers} Farmers | ${data.totalBuyers} Buyers`;
+
+                    // 3. Populate Activity Feed
+                    const feedContainer = document.getElementById('activity-feed');
+                    if (!data.activities || data.activities.length === 0) {
+                        feedContainer.innerHTML = '<p style="color: #666;">No recent activity found.</p>';
+                    } else {
+                        let feedHtml = '';
+                        data.activities.forEach(log => {
+                            feedHtml += `
+                                <div style="padding: 12px 0; border-bottom: 1px solid #f0f0f0;">
+                                    <span style="display: inline-block; width: 120px; font-weight: bold; color: #333; font-size: 0.9rem;">${log.type}</span>
+                                    <span style="color: #555; font-size: 0.95rem;">${log.description}</span>
+                                    <span style="float: right; color: #999; font-size: 0.8rem;">${log.time}</span>
+                                </div>
+                            `;
+                        });
+                        feedContainer.innerHTML = feedHtml;
+                    }
+
                 } else {
-                    console.error("Server error:", data.error);
+                    document.getElementById('activity-feed').innerHTML = `<p style="color: red;">${data.error}</p>`;
                 }
             } catch (error) {
                 console.error("Connection error:", error);
-                document.getElementById('admin-revenue').textContent = "Error";
+                document.getElementById('activity-feed').innerHTML = '<p style="color: red;">Failed to fetch dashboard metrics.</p>';
             }
         });
     </script>

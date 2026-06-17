@@ -151,21 +151,48 @@ def get_admin_stats():
     try:
         cursor = conn.cursor()
 
-        # 1. Count Total Users (Farmers + Buyers)
-        cursor.execute("SELECT (SELECT COUNT(*) FROM farmer) + (SELECT COUNT(*) FROM buyer);")
-        total_users = cursor.fetchone()[0]
+        # 1. Count total farmers
+        cursor.execute("SELECT COUNT(*) FROM farmer;")
+        total_farmers = cursor.fetchone()[0]
 
-        # 2. Count Total Produce Listings
+        # 2. Count total buyers
+        cursor.execute("SELECT COUNT(*) FROM buyer;")
+        total_buyers = cursor.fetchone()[0]
+
+        # 3. Count total produce listings
         cursor.execute("SELECT COUNT(*) FROM produce;")
         total_produce = cursor.fetchone()[0]
 
-        # 3. Revenue set to NULL as requested
-        total_revenue = None
+        # 4. Fetch Recent Activity Log (Simplified to avoid timestamp column issues)
+        activity_query = """
+            SELECT 'Order Placed' AS type, 'Order #' || order_id || ' (' || order_status || ')' AS description, order_id AS sort_key
+            FROM orders
+            UNION ALL
+            SELECT 'New User', full_name || ' registered as a Farmer', farmer_id
+            FROM farmer
+            UNION ALL
+            SELECT 'New Produce', name || ' listed on the market', produce_id
+            FROM produce
+            ORDER BY sort_key DESC 
+            LIMIT 6;
+        """
+        cursor.execute(activity_query)
+        activities = cursor.fetchall()
+        
+        recent_activities = []
+        for a in activities:
+            recent_activities.append({
+                "type": a[0],
+                "description": a[1],
+                "time": "Recent"
+            })
 
         return jsonify({
-            "totalUsers": total_users,
+            "totalUsers": total_farmers + total_buyers,
+            "totalFarmers": total_farmers,
+            "totalBuyers": total_buyers,
             "totalProduce": total_produce,
-            "totalRevenue": total_revenue
+            "activities": recent_activities
         }), 200
 
     except Exception as e:
@@ -223,7 +250,7 @@ def add_produce():
     finally:
         cursor.close()
         conn.close()
-    # ----------------------------------------------------
+# ----------------------------------------------------
 # ROUTE 6: GET ALL PRODUCE (Buyer Dashboard)
 # ----------------------------------------------------
 @app.route('/api/produce', methods=['GET'])
@@ -639,47 +666,6 @@ def get_buyer_orders(buyer_name):
             })
 
         return jsonify(order_list), 200
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    finally:
-        cursor.close()
-        conn.close()
-# ----------------------------------------------------
-# ROUTE 14: ADMIN DASHBOARD STATS
-# ----------------------------------------------------
-@app.route('/api/admin/stats', methods=['GET'])
-def get_admin_stats():
-    conn = get_db_connection()
-    if not conn:
-        return jsonify({"error": "Database connection failed"}), 500
-
-    try:
-        cursor = conn.cursor()
-
-        # Count total farmers
-        cursor.execute("SELECT COUNT(*) FROM farmer")
-        total_farmers = cursor.fetchone()[0]
-
-        # Count total buyers
-        cursor.execute("SELECT COUNT(*) FROM buyer")
-        total_buyers = cursor.fetchone()[0]
-
-        # Count total active produce listings
-        cursor.execute("SELECT COUNT(*) FROM produce")
-        total_produce = cursor.fetchone()[0]
-
-        # Calculate total money moved through the platform
-        cursor.execute("SELECT COALESCE(SUM(total_amount), 0) FROM orders WHERE order_status != 'Cancelled'")
-        total_revenue = cursor.fetchone()[0]
-
-        return jsonify({
-            "totalUsers": total_farmers + total_buyers,
-            "totalFarmers": total_farmers,
-            "totalBuyers": total_buyers,
-            "totalProduce": total_produce,
-            "totalRevenue": float(total_revenue)
-        }), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
