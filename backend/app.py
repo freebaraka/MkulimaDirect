@@ -173,6 +173,144 @@ def get_admin_stats():
     finally:
         cursor.close()
         conn.close()
+
+# ----------------------------------------------------
+# ROUTE 5: ADD NEW PRODUCE (Farmer Dashboard)
+# ----------------------------------------------------
+@app.route('/api/produce', methods=['POST'])
+def add_produce():
+    data = request.json
+
+    farmer_name = data.get('farmerName') 
+    name = data.get('name')
+    description = data.get('description')
+    category = data.get('category')
+    price = data.get('price')
+    unit = data.get('unit')
+    quantity = data.get('quantity')
+
+    # Basic validation
+    if not all([farmer_name, name, price, unit, quantity]):
+        return jsonify({"error": "Please fill in all required fields!"}), 400
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+
+        # 1. Look up the farmer's ID using the name they typed
+        cursor.execute("SELECT farmer_id FROM farmer WHERE full_name = %s", (farmer_name,))
+        farmer = cursor.fetchone()
+
+        if not farmer:
+            return jsonify({"error": "Farmer not found. Please ensure you typed your registered name exactly."}), 404
+
+        farmer_id = farmer[0]
+
+        # 2. Insert the new produce into the database attached to this farmer_id
+        cursor.execute("""
+            INSERT INTO produce (farmer_id, name, description, category, price_per_unit, unit_type, stock_quantity)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """, (farmer_id, name, description, category, price, unit, quantity))
+
+        conn.commit()
+        return jsonify({"message": f"Successfully added {name} to the market!"}), 201
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+    # ----------------------------------------------------
+# ROUTE 6: GET ALL PRODUCE (Buyer Dashboard)
+# ----------------------------------------------------
+@app.route('/api/produce', methods=['GET'])
+def get_all_produce():
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+        
+        # We JOIN the produce table with the farmer table to get the farmer's actual details!
+        query = """
+            SELECT 
+                p.produce_id, p.name, p.price_per_unit, p.unit_type, p.stock_quantity,
+                f.full_name, f.farmer_location, f.phone_number
+            FROM produce p
+            JOIN farmer f ON p.farmer_id = f.farmer_id
+            ORDER BY p.listed_date DESC;
+        """
+        cursor.execute(query)
+        produce_items = cursor.fetchall()
+
+        # Format the data into a clean JSON list
+        market_list = []
+        for item in produce_items:
+            market_list.append({
+                "id": item[0],
+                "name": item[1],
+                "price": item[2],
+                "unit": item[3],
+                "stock": item[4],
+                "farmerName": item[5],
+                "location": item[6] if item[6] else "Not Specified",
+                "phone": item[7]
+            })
+
+        return jsonify(market_list), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+# ----------------------------------------------------
+# ROUTE 7: ADD TO CART (Buyer Dashboard)
+# ----------------------------------------------------
+@app.route('/api/cart', methods=['POST'])
+def add_to_cart():
+    data = request.json
+    buyer_name = data.get('buyerName')
+    produce_id = data.get('produceId')
+
+    if not buyer_name or not produce_id:
+        return jsonify({"error": "Buyer name and produce ID are required"}), 400
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+
+        # 1. Find the buyer's ID using their name
+        cursor.execute("SELECT buyer_id FROM buyer WHERE full_name = %s", (buyer_name,))
+        buyer = cursor.fetchone()
+
+        if not buyer:
+            return jsonify({"error": "Buyer not found. Did you type your registered name correctly?"}), 404
+
+        buyer_id = buyer[0]
+
+        # 2. Insert the item into the cart table
+        # We default the quantity to 1 for now. They can change it at checkout.
+        cursor.execute("""
+            INSERT INTO cart (buyer_id, produce_id, quantity)
+            VALUES (%s, %s, %s)
+        """, (buyer_id, produce_id, 1))
+
+        conn.commit()
+        return jsonify({"message": "Item added to your cart successfully!"}), 201
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()    
 # ----------------------------------------------------
 # START THE SERVER
 # ----------------------------------------------------

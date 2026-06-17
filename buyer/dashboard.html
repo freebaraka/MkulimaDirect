@@ -5,9 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Buyer Dashboard | Mkulima Direct</title>
     <style>
-        /* Minimal Color Palette */
         :root {
-            --primary-color: #2E8B57; /* SeaGreen */
+            --primary-color: #2E8B57; 
             --bg-color: #ffffff;
             --sidebar-bg: #f9f9f9;
             --text-dark: #333333;
@@ -54,39 +53,17 @@
             color: var(--primary-color);
         }
 
-        .logout { 
-            margin-top: auto; 
-            margin-bottom: 20px; 
-            color: #d9534f !important; 
-        }
+        .logout { margin-top: auto; margin-bottom: 20px; color: #d9534f !important; }
 
-        .main-content { 
-            flex: 1; 
-            padding: 40px; 
-            overflow-y: auto; 
-        }
+        .main-content { flex: 1; padding: 40px; overflow-y: auto; }
 
         .header { 
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center; 
-            margin-bottom: 30px; 
-            border-bottom: 1px solid var(--border-color);
-            padding-bottom: 20px;
+            display: flex; justify-content: space-between; align-items: center; 
+            margin-bottom: 30px; border-bottom: 1px solid var(--border-color); padding-bottom: 20px;
         }
 
-        .header h1 { 
-            margin: 0; 
-            color: var(--primary-color); 
-            font-size: 1.8rem;
-        }
-        
-        .header input {
-            padding: 10px; 
-            border-radius: 4px; 
-            border: 1px solid var(--border-color); 
-            width: 300px;
-        }
+        .header h1 { margin: 0; color: var(--primary-color); font-size: 1.8rem; }
+        .header input { padding: 10px; border-radius: 4px; border: 1px solid var(--border-color); width: 300px; }
 
         .market-grid {
             display: grid;
@@ -100,27 +77,12 @@
             padding: 20px;
             border: 1px solid var(--border-color);
             border-radius: 4px;
-            text-align: left; /* Left-aligned for cleaner data reading */
+            text-align: left;
         }
 
-        .product-card h3 { 
-            margin: 0 0 10px 0; 
-            color: var(--primary-color); 
-            font-size: 1.2rem;
-        }
-
-        .product-card p { 
-            color: #555; 
-            margin: 5px 0; 
-            font-size: 0.95rem;
-        }
-
-        .product-card .price { 
-            font-weight: bold; 
-            color: var(--text-dark); 
-            margin-bottom: 15px; 
-            display: block;
-        }
+        .product-card h3 { margin: 0 0 10px 0; color: var(--primary-color); font-size: 1.2rem; }
+        .product-card p { color: #555; margin: 5px 0; font-size: 0.95rem; }
+        .product-card .price { font-weight: bold; color: var(--text-dark); margin-bottom: 15px; display: block; }
 
         .product-card button {
             width: 100%;
@@ -133,10 +95,9 @@
             cursor: pointer;
             margin-top: 15px;
         }
-
-        .product-card button:hover {
-            opacity: 0.9;
-        }
+        .product-card button:hover { opacity: 0.9; }
+        
+        .loading { text-align: center; color: #666; font-size: 1.1rem; padding: 40px; width: 100%; }
     </style>
 </head>
 <body>
@@ -144,9 +105,8 @@
     <div class="sidebar">
         <h2>Buyer Panel</h2>
         <a href="dashboard.html" class="active">Marketplace</a>
-        <a href="#">My Cart (2)</a>
+        <a href="#">My Cart (<span id="cart-count">0</span>)</a>
         <a href="#">Order History</a>
-        <a href="#">Track Delivery</a>
         <a href="#">Account Settings</a>
         <a href="../index.html" class="logout">Log Out</a>
     </div>
@@ -159,35 +119,84 @@
 
         <h2 style="margin-top: 0; font-size: 1.4rem; color: #333;">Featured Produce</h2>
         
-        <div class="market-grid">
-            <div class="product-card">
-                <h3>Fresh Maize</h3>
-                <span class="price">KSh 3,500 / Sack</span>
-                <p>Farmer: Jens Jura</p>
-                <p>Location: Kiambu</p>
-                <p>Phone: 5566</p>
-                <button>Add to Cart</button>
-            </div>
-            
-            <div class="product-card">
-                <h3>Tomatoes</h3>
-                <span class="price">KSh 80 / Kg</span>
-                <p>Farmer: Jane Smith</p>
-                <p>Location: Kajiado</p>
-                <p>Phone: 1122</p>
-                <button>Add to Cart</button>
-            </div>
-            
-            <div class="product-card">
-                <h3>Potatoes</h3>
-                <span class="price">KSh 2,000 / Sack</span>
-                <p>Farmer: John Doe</p>
-                <p>Location: Nakuru</p>
-                <p>Phone: 3344</p>
-                <button>Add to Cart</button>
-            </div>
+        <div class="market-grid" id="market-grid">
+            <div class="loading">Loading fresh produce from the database... ⏳</div>
         </div>
     </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            const marketGrid = document.getElementById('market-grid');
+
+            try {
+                // Fetch the live produce data from Python
+                const response = await fetch('http://localhost:5000/api/produce');
+                const produceList = await response.json();
+
+                // Clear the "Loading" message
+                marketGrid.innerHTML = '';
+
+                if (produceList.length === 0) {
+                    marketGrid.innerHTML = '<div class="loading">No produce available right now. Check back later!</div>';
+                    return;
+                }
+
+                // Loop through every item and build an HTML card for it
+                produceList.forEach(item => {
+                    const card = document.createElement('div');
+                    card.className = 'product-card';
+                    
+                    card.innerHTML = `
+                        <h3>${item.name}</h3>
+                        <span class="price">KSh ${item.price} / ${item.unit}</span>
+                        <p><strong>Stock:</strong> ${item.stock} ${item.unit}s</p>
+                        <p><strong>Farmer:</strong> ${item.farmerName}</p>
+                        <p><strong>Location:</strong> ${item.location}</p>
+                        <p><strong>Phone:</strong> ${item.phone}</p>
+                        <button onclick="addToCart(${item.id})">Add to Cart</button>
+                    `;
+                    
+                    // Add the finished card to the screen
+                    marketGrid.appendChild(card);
+                });
+
+            } catch (error) {
+                console.error('Error fetching produce:', error);
+                marketGrid.innerHTML = '<div class="loading" style="color: red;">Failed to connect to the server.</div>';
+            }
+        });
+        // Function to actually send the item to the database cart
+        async function addToCart(produceId) {
+            // Ask for the buyer's name to link the cart to their account
+            const buyerName = prompt("Please confirm your registered Buyer Name to add to cart:");
+            
+            if (!buyerName) {
+                return; // Stop if they cancel
+            }
+
+            try {
+                const response = await fetch('http://localhost:5000/api/cart', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        buyerName: buyerName,
+                        produceId: produceId
+                    })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    alert("Success! " + result.message);
+                } else {
+                    alert("Error: " + result.error);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert("Cannot connect to the server.");
+            }
+        }
+    </script>
 
 </body>
 </html>

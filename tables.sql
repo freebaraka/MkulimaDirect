@@ -27,7 +27,7 @@ CREATE TABLE admin (
     full_name VARCHAR(255) NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
-    role_level VARCHAR(50) DEFAULT 'Moderator', -- e.g., SuperAdmin, Moderator
+    role_level VARCHAR(50) DEFAULT 'Moderator',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -41,7 +41,7 @@ CREATE TABLE produce (
     price_per_unit DECIMAL(10, 2) NOT NULL,
     unit_type VARCHAR(50) NOT NULL, 
     stock_quantity INT NOT NULL DEFAULT 0,
-    -- image_url VARCHAR(255),  NEW: Allows farmers to upload photos for the buyer marketplace
+    -- image_url VARCHAR(255),  (Commented out as requested)
     listed_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (farmer_id) REFERENCES farmer(farmer_id) ON DELETE CASCADE
 );
@@ -61,7 +61,7 @@ CREATE TABLE cart (
 CREATE TABLE orders (
     order_id SERIAL PRIMARY KEY,
     buyer_id INT NOT NULL,
-    order_status VARCHAR(50) DEFAULT 'Pending', -- Pending, Packing, Delivered, Cancelled
+    order_status VARCHAR(50) DEFAULT 'Pending', 
     total_amount DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
     order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (buyer_id) REFERENCES buyer(buyer_id) ON DELETE RESTRICT
@@ -91,4 +91,12 @@ CREATE TABLE payments (
     FOREIGN KEY (order_id) REFERENCES orders(order_id) ON DELETE CASCADE
 );
 
-\dt -- to show all tables in the database
+-- Verify everything was created successfully
+\dt
+
+-- Expanding Display
+\x
+
+--  To be able to store quantities depending on the type......
+ALTER TABLE produce 
+ALTER COLUMN stock_quantity TYPE VARCHAR(100);
