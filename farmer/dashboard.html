@@ -163,24 +163,61 @@
 
         <div class="stats-grid">
             <div class="stat-card">
-                <h3>KSh 45,000</h3>
+                <h3 id="stat-earnings">Loading...</h3>
                 <p>Total Earnings</p>
             </div>
             <div class="stat-card">
-                <h3>12</h3>
+                <h3 id="stat-listings">-</h3>
                 <p>Active Listings</p>
             </div>
             <div class="stat-card">
-                <h3>4</h3>
+                <h3 id="stat-orders">-</h3>
                 <p>Pending Orders</p>
             </div>
         </div>
-
         <div class="recent-orders">
             <h2>Recent Orders</h2>
             <p style="color: #666;">You have 4 orders waiting to be shipped.</p>
         </div>
     </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            // For now, prompt the farmer for their name to fetch their specific data
+            const farmerName = prompt("Please confirm your registered Farmer Name to view your dashboard:");
+            
+            if (!farmerName) {
+                document.getElementById('stat-earnings').textContent = "Error";
+                alert("You must enter your name to view stats.");
+                return;
+            }
 
+            // Update the greeting
+            const headerH1 = document.querySelector('.header h1');
+            if (headerH1) {
+                headerH1.textContent = `Welcome back, ${farmerName}!`;
+            }
+
+            try {
+                // Fetch stats from Python
+                const response = await fetch(`http://localhost:5000/api/farmer/stats/${farmerName}`);
+                const stats = await response.json();
+
+                if (response.ok) {
+                    // Update the DOM with the live data!
+                    // Format the earnings with commas (e.g., 45000 -> 45,000)
+                    const formattedEarnings = stats.totalEarnings.toLocaleString();
+                    document.getElementById('stat-earnings').textContent = `KSh ${formattedEarnings}`;
+                    document.getElementById('stat-listings').textContent = stats.activeListings;
+                    document.getElementById('stat-orders').textContent = stats.pendingOrders;
+                } else {
+                    console.error("Server error:", stats.error);
+                    document.getElementById('stat-earnings').textContent = "Error";
+                }
+            } catch (error) {
+                console.error("Fetch error:", error);
+                document.getElementById('stat-earnings').textContent = "Connection Error";
+            }
+        });
+    </script>
 </body>
 </html>

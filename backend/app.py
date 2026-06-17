@@ -465,6 +465,62 @@ def process_checkout():
         cursor.close()
         conn.close()
 # ----------------------------------------------------
+# ROUTE 11: FARMER DASHBOARD STATS
+# ----------------------------------------------------
+@app.route('/api/farmer/stats/<farmer_name>', methods=['GET'])
+def get_farmer_stats(farmer_name):
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+
+        # 1. Get the Farmer ID
+        cursor.execute("SELECT farmer_id FROM farmer WHERE full_name = %s", (farmer_name,))
+        farmer = cursor.fetchone()
+        if not farmer:
+            return jsonify({"error": "Farmer not found."}), 404
+        farmer_id = farmer[0]
+
+        # 2. Count Active Listings
+        cursor.execute("SELECT COUNT(*) FROM produce WHERE farmer_id = %s", (farmer_id,))
+        active_listings = cursor.fetchone()[0]
+
+        # 3. Calculate Total Earnings (Sum of subtotal from order_details for this farmer's produce)
+        # We only count orders that are NOT Cancelled
+        cursor.execute("""
+            SELECT COALESCE(SUM(od.subtotal), 0)
+            FROM order_details od
+            JOIN produce p ON od.produce_id = p.produce_id
+            JOIN orders o ON od.order_id = o.order_id
+            WHERE p.farmer_id = %s AND o.order_status != 'Cancelled'
+        """, (farmer_id,))
+        total_earnings = cursor.fetchone()[0]
+
+        # 4. Count Pending Orders
+        # How many distinct orders contain at least one item from this farmer AND are 'Pending'
+        cursor.execute("""
+            SELECT COUNT(DISTINCT o.order_id)
+            FROM orders o
+            JOIN order_details od ON o.order_id = od.order_id
+            JOIN produce p ON od.produce_id = p.produce_id
+            WHERE p.farmer_id = %s AND o.order_status = 'Pending'
+        """, (farmer_id,))
+        pending_orders = cursor.fetchone()[0]
+
+        return jsonify({
+            "totalEarnings": float(total_earnings),
+            "activeListings": active_listings,
+            "pendingOrders": pending_orders
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+# ----------------------------------------------------
 # START THE SERVER
 # ----------------------------------------------------
 if __name__ == '__main__':
