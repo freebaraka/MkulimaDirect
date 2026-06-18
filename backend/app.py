@@ -251,7 +251,7 @@ def add_produce():
         cursor.close()
         conn.close()
 # ----------------------------------------------------
-# ROUTE 6: GET ALL PRODUCE (Buyer Dashboard)
+# ROUTE: GET ALL PRODUCE FOR MARKETPLACE (UPDATED)
 # ----------------------------------------------------
 @app.route('/api/produce', methods=['GET'])
 def get_all_produce():
@@ -261,34 +261,57 @@ def get_all_produce():
 
     try:
         cursor = conn.cursor()
-        
-        # We JOIN the produce table with the farmer table to get the farmer's actual details!
+
+        # Join produce, farmer, and farmer_ratings to get average rating and review count
         query = """
             SELECT 
-                p.produce_id, p.name, p.price_per_unit, p.unit_type, p.stock_quantity,
-                f.full_name, f.farmer_location, f.phone_number
+                p.produce_id,
+                p.name,
+                p.description,
+                p.price_per_unit,
+                p.stock_quantity,
+                p.unit_type,
+                f.full_name,
+                f.farmer_location,
+                f.phone_number,
+                COALESCE(ROUND(AVG(fr.rating_value), 1), 0) AS avg_rating,
+                COUNT(fr.rating_value) AS review_count
             FROM produce p
             JOIN farmer f ON p.farmer_id = f.farmer_id
+            LEFT JOIN farmer_ratings fr ON f.farmer_id = fr.farmer_id
+            GROUP BY 
+                p.produce_id,
+                p.name,
+                p.description,
+                p.price_per_unit,
+                p.stock_quantity,
+                p.unit_type,
+                p.listed_date,
+                f.full_name,
+                f.farmer_location,
+                f.phone_number
             ORDER BY p.listed_date DESC;
         """
         cursor.execute(query)
-        produce_items = cursor.fetchall()
+        produce_records = cursor.fetchall()
 
-        # Format the data into a clean JSON list
-        market_list = []
-        for item in produce_items:
-            market_list.append({
-                "id": item[0],
-                "name": item[1],
-                "price": item[2],
-                "unit": item[3],
-                "stock": item[4],
-                "farmerName": item[5],
-                "location": item[6] if item[6] else "Not Specified",
-                "phone": item[7]
+        produce_list = []
+        for row in produce_records:
+            produce_list.append({
+                "id": row[0],
+                "name": row[1],
+                "description": row[2],
+                "price": float(row[3]),
+                "stock": row[4],
+                "unit": row[5],
+                "farmerName": row[6],
+                "location": row[7] if row[7] else "Not Specified",
+                "phone": row[8],
+                "rating": float(row[9]),
+                "reviews": int(row[10])
             })
 
-        return jsonify(market_list), 200
+        return jsonify(produce_list), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500

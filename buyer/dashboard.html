@@ -145,12 +145,18 @@
                 produceList.forEach(item => {
                     const card = document.createElement('div');
                     card.className = 'product-card';
+
+                    // Show rating if reviews exist, otherwise mark as a new farmer
+                    const ratingDisplay = item.reviews > 0
+                        ? `★ ${item.rating}/5 (${item.reviews})`
+                        : 'New Farmer';
                     
                     card.innerHTML = `
                         <h3>${item.name}</h3>
+                        <p>${item.description || ''}</p>
                         <span class="price">KSh ${item.price} / ${item.unit}</span>
                         <p><strong>Stock:</strong> ${item.stock} ${item.unit}s</p>
-                        <p><strong>Farmer:</strong> ${item.farmerName}</p>
+                        <p><strong>Farmer:</strong> ${item.farmerName}<br><span style="color: #666; font-size: 0.9rem;">${ratingDisplay}</span></p>
                         <p><strong>Location:</strong> ${item.location}</p>
                         <p><strong>Phone:</strong> ${item.phone}</p>
                         <button onclick="addToCart(${item.id})">Add to Cart</button>
