@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orders | Mkulima Direct</title>
+    <style>
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid var(--border-color); font-size: 0.95rem; }
+        th { background-color: #f9f9f9; color: #666; font-weight: bold; text-transform: uppercase; font-size: 0.85rem; }
+        .status-badge { padding: 5px 10px; border-radius: 4px; font-weight: bold; font-size: 0.85rem; }
+        .status-pending { background-color: #fff3cd; color: #856404; }
+        .status-delivered { background-color: #d4edda; color: #155724; }
+
+        :root {
+            --primary-color: #2E8B57;
+            --bg-color: #ffffff;
+            --sidebar-bg: #f9f9f9;
+            --text-dark: #333333;
+            --border-color: #e0e0e0;
+            --sidebar-width: 250px;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, Helvetica, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-dark);
+            display: flex;
+            height: 100vh;
+        }
+
+        .sidebar {
+            width: var(--sidebar-width);
+            background-color: var(--sidebar-bg);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            padding-top: 20px;
+        }
+
+        .sidebar h2 {
+            text-align: center;
+            color: var(--primary-color);
+            margin-bottom: 30px;
+            font-size: 1.3rem;
+        }
+
+        .sidebar a {
+            text-decoration: none;
+            color: var(--text-dark);
+            padding: 15px 25px;
+            font-weight: bold;
+            border-left: 4px solid transparent;
+        }
+
+        .sidebar a:hover, .sidebar a.active {
+            background-color: #eeeeee;
+            border-left-color: var(--primary-color);
+            color: var(--primary-color);
+        }
+
+        .logout {
+            margin-top: auto;
+            margin-bottom: 20px;
+            color: #d9534f !important;
+        }
+
+        .main-content {
+            flex: 1;
+            padding: 40px;
+            overflow-y: auto;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 20px;
+        }
+
+        .header h1 {
+            margin: 0;
+            color: var(--primary-color);
+            font-size: 1.8rem;
+        }
+
+        .orders-panel {
+            background: #ffffff;
+            padding: 20px;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+        }
+
+        .action-btn {
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 8px 12px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .action-btn:hover {
+            opacity: 0.9;
+        }
+
+        .action-btn.disabled {
+            background: #a7b0ab;
+            cursor: not-allowed;
+            opacity: 1;
+        }
+
+        .loading-text {
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <h2>Farmer Panel</h2>
+        <a href="dashboard.html">Dashboard Overview</a>
+        <a href="my-produce.html">My Produce</a>
+        <a href="orders.html" class="active">Orders &amp; Sales</a>
+        <a href="../index.html" class="logout">Log Out</a>
+    </div>
+
+    <div class="main-content">
+        <div class="header">
+            <h1>All Orders &amp; Sales</h1>
+        </div>
+
+        <div class="orders-panel" id="orders-container">
+            <p class="loading-text">Loading orders...</p>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const farmerName = localStorage.getItem('currentFarmer');
+            if (!farmerName) {
+                window.location.href = 'dashboard.html';
+                return;
+            }
+            fetchFarmerOrders(farmerName);
+        });
+
+        async function fetchFarmerOrders(farmerName) {
+            try {
+                const response = await fetch(`http://localhost:5000/api/farmer/orders/${farmerName}`);
+                const orders = await response.json();
+
+                if (!response.ok) {
+                    document.getElementById('orders-container').innerHTML = `<p class="loading-text">${orders.error || 'Failed to load orders.'}</p>`;
+                    return;
+                }
+
+                if (orders.length === 0) {
+                    document.getElementById('orders-container').innerHTML = '<p class="loading-text">No orders yet.</p>';
+                    return;
+                }
+
+                let html = `
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Order #</th>
+                                <th>Date</th>
+                                <th>Produce</th>
+                                <th>Qty</th>
+                                <th>Earnings</th>
+                                <th>Buyer</th>
+                                <th>Status</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+
+                orders.forEach(order => {
+                    const statusClass = order.status === 'Pending' ? 'status-pending' : 'status-delivered';
+                    const actionBtn = order.status === 'Pending'
+                        ? `<button class="action-btn" onclick="markDelivered(${order.orderId})">Mark Delivered</button>`
+                        : '<button class="action-btn disabled" disabled>Completed</button>';
+
+                    html += `
+                        <tr>
+                            <td><strong>#${order.orderId}</strong></td>
+                            <td>${order.date}</td>
+                            <td>${order.produceName}</td>
+                            <td>${order.quantity} ${order.unit}</td>
+                            <td>KSh ${order.subtotal}</td>
+                            <td>${order.buyerName}<br><span style="color:#666; font-size:0.85rem;">${order.buyerPhone}</span></td>
+                            <td><span class="status-badge ${statusClass}">${order.status}</span></td>
+                            <td>${actionBtn}</td>
+                        </tr>
+                    `;
+                });
+
+                html += `
+                        </tbody>
+                    </table>
+                `;
+
+                document.getElementById('orders-container').innerHTML = html;
+            } catch (error) {
+                console.error(error);
+                document.getElementById('orders-container').innerHTML = '<p class="loading-text">Could not connect to the server.</p>';
+            }
+        }
+
+        async function markDelivered(orderId) {
+            if (!confirm('Mark this order as delivered?')) return;
+            try {
+                await fetch(`http://localhost:5000/api/orders/${orderId}/deliver`, { method: 'PUT' });
+                fetchFarmerOrders(localStorage.getItem('currentFarmer'));
+            } catch (e) {
+                console.error(e);
+            }
+        }
+    </script>
+</body>
+</html>

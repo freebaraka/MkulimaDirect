@@ -762,6 +762,63 @@ def rate_farmer():
         cursor.close()
         conn.close()
 # ----------------------------------------------------
+# ROUTE 17: GET SPECIFIC FARMER'S PRODUCE
+# ----------------------------------------------------
+@app.route('/api/farmer/produce/<farmer_name>', methods=['GET'])
+def get_farmer_inventory(farmer_name):
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+        
+        # Get Farmer ID
+        cursor.execute("SELECT farmer_id FROM farmer WHERE full_name = %s", (farmer_name,))
+        farmer = cursor.fetchone()
+        if not farmer:
+            return jsonify({"error": "Farmer not found."}), 404
+            
+        # Fetch their produce
+        cursor.execute("""
+                SELECT produce_id, name, description, price_per_unit, stock_quantity, unit_type, TO_CHAR(listed_date, 'YYYY-MM-DD')
+            FROM produce WHERE farmer_id = %s ORDER BY listed_date DESC
+        """, (farmer[0],))
+        
+        produce_records = cursor.fetchall()
+        
+        inventory = []
+        for p in produce_records:
+            inventory.append({
+                "id": p[0], "name": p[1], "description": p[2], 
+                "price": float(p[3]), "stock": p[4], "unit": p[5], "date": p[6]
+            })
+            
+        return jsonify(inventory), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+# ----------------------------------------------------
+# ROUTE 18: DELETE PRODUCE LISTING
+# ----------------------------------------------------
+@app.route('/api/produce/<int:produce_id>', methods=['DELETE'])
+def delete_produce(produce_id):
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM produce WHERE produce_id = %s", (produce_id,))
+        conn.commit()
+        return jsonify({"message": "Produce deleted."}), 200
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+# ----------------------------------------------------
 # START THE SERVER
 # ----------------------------------------------------
 if __name__ == '__main__':

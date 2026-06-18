@@ -155,10 +155,8 @@
     <div class="sidebar">
         <h2>Farmer Panel</h2>
         <a href="dashboard.html" class="active">Dashboard Overview</a>
-        <a href="#">My Produce</a>
-        <a href="#">Add New Listing</a>
-        <a href="#">Orders & Sales</a>
-        <a href="#">Account Settings</a>
+        <a href="my-produce.html">My Produce</a>
+        <a href="orders.html">Orders &amp; Sales</a>
         <a href="../index.html" class="logout">Log Out</a>
     </div>
 
@@ -166,9 +164,8 @@
         <div class="header">
             <div>
                 <h1 id="farmer-greeting">Welcome back!</h1>
-                <p id="farmer-rating">Rating: -- / 5.0 (0 Reviews)</p>
+                <p id="farmer-rating">Rating: -- / 5.0</p>
             </div>
-            <a href="add-produce.html"><button>+ Add New Produce</button></a>
         </div>
 
         <div class="stats-grid">
@@ -176,133 +173,43 @@
                 <h3 id="stat-earnings">Loading...</h3>
                 <p>Total Earnings</p>
             </div>
+
             <div class="stat-card">
                 <h3 id="stat-listings">-</h3>
                 <p>Active Listings</p>
             </div>
+
             <div class="stat-card">
                 <h3 id="stat-orders">-</h3>
                 <p>Pending Orders</p>
             </div>
         </div>
-            <div class="recent-orders">
-                <h2>All Sales & Orders</h2>
-                    <div id="orders-container">
-                <p style="color: #666;">Loading order history...</p>
-            </div>
-        </div>
     </div>
+
     <script>
         document.addEventListener('DOMContentLoaded', async () => {
-            // For now, prompt the farmer for their name to fetch their specific data
             const farmerName = prompt("Please confirm your registered Farmer Name to view your dashboard:");
-            
-            if (!farmerName) {
-                document.getElementById('stat-earnings').textContent = "Error";
-                alert("You must enter your name to view stats.");
-                return;
-            }
+            if (!farmerName) return;
 
+            // Save to localStorage so they don't have to type it again when switching tabs!
+            localStorage.setItem('currentFarmer', farmerName);
             document.getElementById('farmer-greeting').textContent = `Welcome back, ${farmerName}!`;
 
             try {
-                // Fetch stats from Python
                 const response = await fetch(`http://localhost:5000/api/farmer/stats/${farmerName}`);
                 const stats = await response.json();
-
                 if (response.ok) {
-                    // Update the DOM with the live data!
-                    // Format the earnings with commas (e.g., 45000 -> 45,000)
-                    const formattedEarnings = stats.totalEarnings.toLocaleString();
-                    document.getElementById('stat-earnings').textContent = `KSh ${formattedEarnings}`;
+                    document.getElementById('stat-earnings').textContent = `KSh ${stats.totalEarnings.toLocaleString()}`;
                     document.getElementById('stat-listings').textContent = stats.activeListings;
                     document.getElementById('stat-orders').textContent = stats.pendingOrders;
-
-                    // NEW: Inject the rating
-                    const ratingSpan = document.getElementById('farmer-rating');
-                    if (stats.totalReviews === 0) {
-                        ratingSpan.textContent = "Rating: No reviews yet";
-                        ratingSpan.style.color = "#666";
-                    } else {
-                        ratingSpan.textContent = `Rating: ${stats.averageRating} / 5.0 (${stats.totalReviews} Reviews)`;
-                    }
-
-                    fetchFarmerOrders(farmerName);
-                } else {
-                    console.error("Server error:", stats.error);
-                    document.getElementById('stat-earnings').textContent = "Error";
+                    document.getElementById('farmer-rating').textContent = stats.totalReviews === 0
+                        ? "Rating: No reviews yet"
+                        : `Rating: ${stats.averageRating} / 5.0 (${stats.totalReviews} Reviews)`;
                 }
             } catch (error) {
-                console.error("Fetch error:", error);
-                document.getElementById('stat-earnings').textContent = "Connection Error";
+                console.error(error);
             }
         });
-        async function fetchFarmerOrders(farmerName) {
-            const container = document.getElementById('orders-container');
-
-            try {
-                const response = await fetch(`http://localhost:5000/api/farmer/orders/${farmerName}`);
-                const orders = await response.json();
-
-                if (!response.ok) {
-                    container.innerHTML = `<p style="color: red;">Error: ${orders.error}</p>`;
-                    return;
-                }
-
-                if (orders.length === 0) {
-                    container.innerHTML = '<p style="color: #666;">You have not received any orders yet. Keep listing fresh produce!</p>';
-                    return;
-                }
-
-                // Build the table
-                let html = `
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Order #</th>
-                                <th>Date</th>
-                                <th>Produce Sold</th>
-                                <th>Qty</th>
-                                <th>Earnings</th>
-                                <th>Buyer Info</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                `;
-
-                orders.forEach(order => {
-                    // Make a nice badge for the status
-                    const statusClass = order.status === 'Pending' ? 'status-pending' : 'status-delivered';
-                    
-                    html += `
-                        <tr>
-                            <td><strong>#${order.orderId}</strong></td>
-                            <td style="color: #666;">${order.date}</td>
-                            <td style="font-weight: bold; color: var(--primary-color);">${order.produceName}</td>
-                            <td>${order.quantity} ${order.unit}</td>
-                            <td style="font-weight: bold;">KSh ${order.subtotal}</td>
-                            <td>
-                                ${order.buyerName}<br>
-                                <span style="color: #666; font-size: 0.85rem;">${order.buyerPhone}</span>
-                            </td>
-                            <td><span class="status-badge ${statusClass}">${order.status}</span></td>
-                        </tr>
-                    `;
-                });
-
-                html += `
-                        </tbody>
-                    </table>
-                `;
-
-                container.innerHTML = html;
-
-            } catch (error) {
-                console.error("Fetch orders error:", error);
-                container.innerHTML = '<p style="color: red;">Failed to load orders from the server.</p>';
-            }
-        }
     </script>
 </body>
 </html>
