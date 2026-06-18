@@ -127,8 +127,10 @@
 
                 if (response.ok) {
                     if (result.role === 'farmer') {
+                        localStorage.setItem('currentFarmer', nameValue);
                         window.location.href = '../farmer/dashboard.html';
                     } else if (result.role === 'buyer') {
+                        localStorage.setItem('currentBuyer', nameValue);
                         window.location.href = '../buyer/dashboard.html';
                     }
                 } else {

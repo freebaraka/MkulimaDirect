@@ -107,7 +107,6 @@
         <a href="dashboard.html" class="active">Marketplace</a>
         <a href="cart.html">My Cart (<span id="cart-count">0</span>)</a>
         <a href="order-history.html">Order History</a>
-        <a href="#">Account Settings</a>
         <a href="../index.html" class="logout">Log Out</a>
     </div>
 
@@ -173,11 +172,13 @@
         });
         // Function to actually send the item to the database cart
         async function addToCart(produceId) {
-            // Ask for the buyer's name to link the cart to their account
-            const buyerName = prompt("Please confirm your registered Buyer Name to add to cart:");
-            
+            // Use the buyer name saved at login so we don't repeatedly prompt on every click
+            const buyerName = localStorage.getItem('currentBuyer');
+
             if (!buyerName) {
-                return; // Stop if they cancel
+                alert("Session expired. Please log in again.");
+                window.location.href = '../auth/login.html';
+                return;
             }
 
             try {
