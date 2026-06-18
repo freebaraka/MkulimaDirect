@@ -81,6 +81,17 @@
             padding: 10px;
             border-radius: 4px;
         }
+
+        .email-heads-up {
+            margin: 6px 0 2px;
+            padding: 8px 10px;
+            border: 1px solid #f0d98a;
+            background: #fff8df;
+            color: #6b4f00;
+            font-size: 0.85rem;
+            text-align: left;
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body>
@@ -91,7 +102,9 @@
         
         <form id="registerForm">
             <input type="text" id="fullName" placeholder="Full Name" required>
-            <input type="text" id="phone" placeholder="Phone Number" required>
+            <input type="text" id="location" placeholder="Location" required>
+            <p class="email-heads-up">Heads up: every user must have an active email address to receive the verification code.</p>
+            <input type="email" id="email" placeholder="Email Address" required>
             
             <select id="role" required>
                 <option value="" disabled selected>Select your role...</option>
@@ -116,57 +129,79 @@
         const registerForm = document.getElementById('registerForm');
         const statusMessage = document.getElementById('status-message');
 
-        registerForm.addEventListener('submit', async function(event) {
-            event.preventDefault(); // Stop the page from reloading
+        registerForm.addEventListener('submit', handleSignup);
 
-            // 1. Gather the data from the form
-            const userData = {
+        async function handleSignup(event) {
+            event.preventDefault();
+
+            // Gather your form data
+            const formData = {
                 fullName: document.getElementById('fullName').value,
-                phone: document.getElementById('phone').value,
+                location: document.getElementById('location').value,
+                email: document.getElementById('email').value,
                 role: document.getElementById('role').value,
                 password: document.getElementById('password').value
             };
 
-            // 2. Show a loading message
             statusMessage.style.display = 'block';
             statusMessage.className = '';
-            statusMessage.textContent = 'Creating account...';
+            statusMessage.textContent = 'Sending verification code...';
 
             try {
-                // 3. Send the data to your Python Flask API
-                const response = await fetch('http://localhost:5000/api/register', {
+                // 1. Ask Python to validate and send the email
+                const response = await fetch('http://localhost:5000/api/signup/request_otp', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(userData)
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(formData)
                 });
 
                 const result = await response.json();
 
-                // 4. Handle the response
-                if (response.ok) {
+                if (!response.ok) {
+                    statusMessage.className = 'error';
+                    statusMessage.textContent = result.error || 'Failed to send verification code.';
+                    alert(result.error || 'Failed to send verification code.');
+                    return;
+                }
+
+                // 2. If email sent, prompt the user for the 6 digits
+                const userCode = prompt('Enter the 6-digit code sent to your email:');
+                if (!userCode) {
+                    statusMessage.className = 'error';
+                    statusMessage.textContent = 'Verification cancelled.';
+                    return;
+                }
+
+                statusMessage.className = '';
+                statusMessage.textContent = 'Verifying code...';
+
+                // 3. Send the code back to Python to finish creating the account
+                const verifyResponse = await fetch('http://localhost:5000/api/signup/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: formData.email, code: userCode, role: formData.role })
+                });
+
+                const verifyResult = await verifyResponse.json();
+                alert(verifyResult.message || verifyResult.error);
+
+                if (verifyResponse.ok) {
                     statusMessage.className = 'success';
-                    statusMessage.textContent = 'Registration successful! Redirecting...';
-                    
-                    // Clear the form
+                    statusMessage.textContent = 'Account verified and created successfully! Redirecting...';
                     registerForm.reset();
-                    
-                    // Redirect to login page after 2 seconds
                     setTimeout(() => {
                         window.location.href = 'login.html';
                     }, 2000);
                 } else {
-                    // Show error from the server (e.g., "Phone number already registered")
                     statusMessage.className = 'error';
-                    statusMessage.textContent = result.error || 'Registration failed.';
+                    statusMessage.textContent = verifyResult.error || 'Verification failed.';
                 }
             } catch (error) {
                 console.error('Error:', error);
                 statusMessage.className = 'error';
                 statusMessage.textContent = 'Cannot connect to the server. Is your Python API running?';
             }
-        });
+        }
     </script>
 
 </body>

@@ -1,15 +1,145 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-# Notice we added check_password_hash here at the end of the line!
 from werkzeug.security import generate_password_hash, check_password_hash
 from db import get_db_connection  
+import re
+import random
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+# ------------
+# EMAIL SETUP 
+# ------------
+GMAIL_ADDRESS = "sirwoossah@gmail.com" 
+GMAIL_APP_PASSWORD = "psbf qfry urkm hzud"
+
+def send_email(to_email, subject, body):
+    """Sends an email using Gmail's secure SMTP server"""
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = f"Mkulima Direct "
+        msg['To'] = to_email
+        msg['Subject'] = subject
+        msg.attach(MIMEText(body, 'plain'))
+
+        # Connect to Gmail
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls() # Secure the connection
+        server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
+        server.send_message(msg)
+        server.quit()
+        
+        print(f"✅ Email successfully sent to {to_email}")
+        return True
+    except Exception as e:
+        print(f"❌ Failed to send email: {str(e)}")
+        return False
+
+# Temporary storage for OTPs (Using email as the key instead of phone)
+OTP_STORE = {}
+
+NAME_REGEX = re.compile(r'^[A-Za-z]+\s+[A-Za-z]+$')
+EMAIL_REGEX = re.compile(r'^[\w\.-]+@[\w\.-]+\.\w+$') # NEW: Validates an email address
 
 app = Flask(__name__)
 CORS(app)
 
 # ----------------------------------------------------
-# ROUTE 1: REGISTRATION (You already had this)
+# ROUTE: SIGNUP REQUEST OTP 
 # ----------------------------------------------------
+@app.route('/api/signup/request_otp', methods=['POST'])
+def signup_request_otp():
+    data = request.json
+    full_name = data.get('fullName')
+    location = data.get('location')
+    email = data.get('email')
+    password = data.get('password')
+
+    # 1. Strict Validations
+    if not all([full_name, location, email, password]):
+        return jsonify({"error": "All fields are required, including location."}), 400
+
+    if not NAME_REGEX.match(full_name):
+        return jsonify({"error": "Name must be exactly two words with no numbers or special characters."}), 400
+
+    if not EMAIL_REGEX.match(email):
+        return jsonify({"error": "Please enter a valid email address."}), 400
+
+    # 2. Generate Code and Store it
+    otp_code = str(random.randint(100000, 999999))
+    OTP_STORE[email] = {
+        "code": otp_code,
+        "data": data
+    }
+
+    # 3. Send the Email
+    subject = "Mkulima Direct Verification Code"
+    body = f"Hello {full_name},\n\nYour 6-digit verification code is: {otp_code}\n\nWelcome to Mkulima Direct!"
+
+    if send_email(email, subject, body):
+        return jsonify({"message": "Verification code sent to your email!"}), 200
+    
+    return jsonify({"error": "Failed to send email. Check your console."}), 500
+
+# ----------------------------------------------------
+# ROUTE: VERIFY EMAIL & CREATE ACCOUNT
+# ----------------------------------------------------
+@app.route('/api/signup/verify', methods=['POST'])
+def signup_verify():
+    email = request.json.get('email') 
+    user_code = request.json.get('code')
+    role = request.json.get('role')
+
+    stored_data = OTP_STORE.get(email)
+
+    if not stored_data or stored_data['code'] != user_code:
+        return jsonify({"error": "Invalid or expired verification code."}), 400
+
+    # If code matches, insert them into the database
+    signup_data = stored_data['data']
+    full_name = signup_data.get('fullName')
+    location = signup_data.get('location')
+    password = signup_data.get('password')
+    role = (role or signup_data.get('role') or '').lower()
+
+    hashed_password = generate_password_hash(password)
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+
+        if role == 'farmer':
+            cursor.execute(
+                "INSERT INTO farmer (full_name, phone_number, farmer_location, password_hash) VALUES (%s, %s, %s, %s)",
+                (full_name, email, location, hashed_password)
+            )
+        else:
+            cursor.execute(
+                "INSERT INTO buyer (full_name, phone_number, password_hash) VALUES (%s, %s, %s)",
+                (full_name, email, hashed_password)
+            )
+
+        conn.commit()
+        del OTP_STORE[email] # Clear memory
+        return jsonify({"message": "Account verified and created successfully!"}), 200
+
+    except Exception as e:
+        conn.rollback()
+        if "unique constraint" in str(e).lower():
+            return jsonify({"error": "This email is already registered."}), 409
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+# ------------------------
+# ROUTE 1: REGISTRATION 
+# -----------------------
 @app.route('/api/register', methods=['POST'])
 def register_user():
     data = request.json
@@ -453,12 +583,13 @@ def process_checkout():
     try:
         cursor = conn.cursor()
 
-        # 1. Get the Buyer ID
-        cursor.execute("SELECT buyer_id FROM buyer WHERE full_name = %s", (buyer_name,))
+        # 1. Get the Buyer ID and phone number
+        cursor.execute("SELECT buyer_id, phone_number FROM buyer WHERE full_name = %s", (buyer_name,))
         buyer = cursor.fetchone()
         if not buyer:
             return jsonify({"error": "Buyer not found."}), 404
         buyer_id = buyer[0]
+        buyer_phone = buyer[1]
 
         # 2. Fetch all items currently in this buyer's cart
         cursor.execute("""
@@ -505,6 +636,33 @@ def process_checkout():
 
         # Save all these steps to the database at the exact same time
         conn.commit()
+
+        # 7. Send SMS alerts to farmers for each produce item in this order
+        for item in cart_items:
+            produce_id, quantity, _price = item
+
+            cursor.execute("""
+                SELECT f.phone_number, p.name
+                FROM farmer f
+                JOIN produce p ON f.farmer_id = p.farmer_id
+                WHERE p.produce_id = %s
+            """, (produce_id,))
+            farmer_data = cursor.fetchone()
+
+            if farmer_data:
+                farmer_phone = farmer_data[0]
+                produce_name = farmer_data[1]
+
+                sms_message = (
+                    f"Mkulima Direct: New Order! {buyer_name} ({buyer_phone}) "
+                    f"has ordered {quantity} of {produce_name}. Please prepare for delivery."
+                )
+
+                if send_email(farmer_phone, "Mkulima Direct New Order Alert", sms_message):
+                    print(f"Email successfully sent to {farmer_phone}")
+                else:
+                    print("Email Failed to send")
+
         return jsonify({"message": f"Order #{order_id} placed successfully! Total: KSh {grand_total}"}), 201
 
     except Exception as e:
