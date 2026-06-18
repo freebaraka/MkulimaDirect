@@ -45,6 +45,72 @@ EMAIL_REGEX = re.compile(r'^[\w\.-]+@[\w\.-]+\.\w+$') # NEW: Validates an email 
 app = Flask(__name__)
 CORS(app)
 
+
+def ensure_contact_columns_support_email():
+    """Migrates legacy phone_number columns to email and enforces basic email checks."""
+    conn = get_db_connection()
+    if not conn:
+        return
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_name = 'farmer' AND column_name = 'phone_number'
+        """)
+        if cursor.fetchone():
+            cursor.execute("ALTER TABLE farmer RENAME COLUMN phone_number TO email")
+
+        cursor.execute("""
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_name = 'buyer' AND column_name = 'phone_number'
+        """)
+        if cursor.fetchone():
+            cursor.execute("ALTER TABLE buyer RENAME COLUMN phone_number TO email")
+
+        cursor.execute("ALTER TABLE farmer ALTER COLUMN email TYPE VARCHAR(255)")
+        cursor.execute("ALTER TABLE buyer ALTER COLUMN email TYPE VARCHAR(255)")
+
+        cursor.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint WHERE conname = 'farmer_email_must_have_at'
+                ) THEN
+                    ALTER TABLE farmer
+                    ADD CONSTRAINT farmer_email_must_have_at
+                    CHECK (POSITION('@' IN email) > 1);
+                END IF;
+            END $$;
+        """)
+
+        cursor.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint WHERE conname = 'buyer_email_must_have_at'
+                ) THEN
+                    ALTER TABLE buyer
+                    ADD CONSTRAINT buyer_email_must_have_at
+                    CHECK (POSITION('@' IN email) > 1);
+                END IF;
+            END $$;
+        """)
+
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"Warning: could not apply contact-column migration: {e}")
+    finally:
+        cursor.close()
+        conn.close()
+
+
+ensure_contact_columns_support_email()
+
 # ----------------------------------------------------
 # ROUTE: SIGNUP REQUEST OTP 
 # ----------------------------------------------------
@@ -64,7 +130,7 @@ def signup_request_otp():
         return jsonify({"error": "Name must be exactly two words with no numbers or special characters."}), 400
 
     if not EMAIL_REGEX.match(email):
-        return jsonify({"error": "Please enter a valid email address."}), 400
+        return jsonify({"error": "Please enter a valid email address containing an '@' symbol."}), 400
 
     # 2. Generate Code and Store it
     otp_code = str(random.randint(100000, 999999))
@@ -114,12 +180,12 @@ def signup_verify():
 
         if role == 'farmer':
             cursor.execute(
-                "INSERT INTO farmer (full_name, phone_number, farmer_location, password_hash) VALUES (%s, %s, %s, %s)",
+                "INSERT INTO farmer (full_name, email, farmer_location, password_hash) VALUES (%s, %s, %s, %s)",
                 (full_name, email, location, hashed_password)
             )
         else:
             cursor.execute(
-                "INSERT INTO buyer (full_name, phone_number, password_hash) VALUES (%s, %s, %s)",
+                "INSERT INTO buyer (full_name, email, password_hash) VALUES (%s, %s, %s)",
                 (full_name, email, hashed_password)
             )
 
@@ -145,12 +211,15 @@ def register_user():
     data = request.json
     
     full_name = data.get('fullName')
-    phone = data.get('phone')
+    email = data.get('email') or data.get('phone')
     role = data.get('role')
     password = data.get('password')
 
-    if not all([full_name, phone, role, password]):
+    if not all([full_name, email, role, password]):
         return jsonify({"error": "All fields are required!"}), 400
+
+    if not EMAIL_REGEX.match(email):
+        return jsonify({"error": "Please enter a valid email address."}), 400
 
     hashed_password = generate_password_hash(password)
 
@@ -163,13 +232,13 @@ def register_user():
 
         if role == 'farmer':
             cursor.execute(
-                "INSERT INTO farmer (full_name, phone_number, password_hash) VALUES (%s, %s, %s)",
-                (full_name, phone, hashed_password)
+                "INSERT INTO farmer (full_name, email, password_hash) VALUES (%s, %s, %s)",
+                (full_name, email, hashed_password)
             )
         elif role == 'buyer':
             cursor.execute(
-                "INSERT INTO buyer (full_name, phone_number, password_hash) VALUES (%s, %s, %s)",
-                (full_name, phone, hashed_password)
+                "INSERT INTO buyer (full_name, email, password_hash) VALUES (%s, %s, %s)",
+                (full_name, email, hashed_password)
             )
         else:
             return jsonify({"error": "Invalid role selected"}), 400
@@ -182,12 +251,12 @@ def register_user():
 
     except Exception as e:
         if "unique constraint" in str(e).lower():
-            return jsonify({"error": "This phone number is already registered."}), 409
+            return jsonify({"error": "This email is already registered."}), 409
         return jsonify({"error": str(e)}), 500
 
 
 # ----------------------------------------------------
-# ROUTE 2: LOGIN 
+# ROUTE 2: LOGIN (STEP 1 - Check Password & Send OTP)
 # ----------------------------------------------------
 @app.route('/api/login', methods=['POST'])
 def login_user():
@@ -195,7 +264,6 @@ def login_user():
     name = data.get('name') 
     password = data.get('password')
 
-    # THE FIX IS HERE: It must check for 'name', not 'phone'
     if not name or not password:
         return jsonify({"error": "Full Name and password are required!"}), 400
 
@@ -205,29 +273,85 @@ def login_user():
 
     try:
         cursor = conn.cursor()
+        user_role = None
+        user_email = None
 
         # 1. Check if the user is a Farmer
-        cursor.execute("SELECT password_hash FROM farmer WHERE full_name = %s", (name,))
+        cursor.execute("SELECT password_hash, email FROM farmer WHERE full_name = %s", (name,))
         farmer = cursor.fetchone()
         
         if farmer and check_password_hash(farmer[0], password):
-            return jsonify({"message": "Login successful!", "role": "farmer"}), 200
+            user_role = "farmer"
+            user_email = farmer[1]
+        else:
+            # 2. Check if the user is a Buyer
+            cursor.execute("SELECT password_hash, email FROM buyer WHERE full_name = %s", (name,))
+            buyer = cursor.fetchone()
+            
+            if buyer and check_password_hash(buyer[0], password):
+                user_role = "buyer"
+                user_email = buyer[1]
 
-        # 2. Check if the user is a Buyer
-        cursor.execute("SELECT password_hash FROM buyer WHERE full_name = %s", (name,))
-        buyer = cursor.fetchone()
+        # 3. If password or name is wrong
+        if not user_role:
+            return jsonify({"error": "Invalid name or password."}), 401
+            
+        if not user_email:
+            return jsonify({"error": "No email associated with this account."}), 400
+
+        # 4. Generate and send the Login OTP
+        otp_code = str(random.randint(100000, 999999))
         
-        if buyer and check_password_hash(buyer[0], password):
-            return jsonify({"message": "Login successful!", "role": "buyer"}), 200
+        # Store it in memory using a special 'login_' prefix
+        OTP_STORE[f"login_{user_email}"] = {
+            "code": otp_code,
+            "role": user_role,
+            "name": name
+        }
 
-        # 3. If neither matched
-        return jsonify({"error": "Invalid name or password."}), 401
+        subject = "Mkulima Direct - Login Attempt"
+        body = f"Hello {name},\n\nSomeone is attempting to log into your account.\nYour 6-digit login code is: {otp_code}\n\nIf this was not you, please secure your account."
+        
+        if send_email(user_email, subject, body):
+            return jsonify({
+                "message": "OTP sent to your registered email!", 
+                "email": user_email,
+                "requireOtp": True
+            }), 200
+        else:
+            return jsonify({"error": "Failed to send login email."}), 500
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     finally:
         cursor.close()
         conn.close()
+
+# ----------------------------------------------------
+# ROUTE 2B: LOGIN VERIFY (STEP 2 - Check Code & Grant Access)
+# ----------------------------------------------------
+@app.route('/api/login/verify', methods=['POST'])
+def login_verify():
+    data = request.json
+    email = data.get('email')
+    user_code = data.get('code')
+
+    if not email or not user_code:
+         return jsonify({"error": "Email and code are required."}), 400
+
+    # Fetch the code we stored in memory during Step 1
+    stored_data = OTP_STORE.get(f"login_{email}")
+
+    if not stored_data or stored_data['code'] != user_code:
+        return jsonify({"error": "Invalid or expired login code."}), 400
+
+    # Success! Grab the role so the frontend knows where to redirect
+    role = stored_data['role']
+    
+    # Clear the OTP memory so the code can't be reused
+    del OTP_STORE[f"login_{email}"]
+
+    return jsonify({"message": "Login successful!", "role": role}), 200
 # ----------------------------------------------------
 # ROUTE 3: GET ALL USERS (For the Admin Dashboard)
 # ----------------------------------------------------
@@ -243,9 +367,9 @@ def get_all_users():
         # We use UNION ALL to combine the farmer and buyer tables into one big list!
         # We also sort them so the newest users appear at the top.
         query = """
-            SELECT full_name, 'farmer' as role, phone_number, joined_date FROM farmer
+            SELECT full_name, 'farmer' as role, email, joined_date FROM farmer
             UNION ALL
-            SELECT full_name, 'buyer' as role, phone_number, joined_date FROM buyer
+            SELECT full_name, 'buyer' as role, email, joined_date FROM buyer
             ORDER BY joined_date DESC;
         """
         cursor.execute(query)
@@ -403,7 +527,7 @@ def get_all_produce():
                 p.unit_type,
                 f.full_name,
                 f.farmer_location,
-                f.phone_number,
+                f.email,
                 COALESCE(ROUND(AVG(fr.rating_value), 1), 0) AS avg_rating,
                 COUNT(fr.rating_value) AS review_count
             FROM produce p
@@ -419,7 +543,7 @@ def get_all_produce():
                 p.listed_date,
                 f.full_name,
                 f.farmer_location,
-                f.phone_number
+                f.email
             ORDER BY p.listed_date DESC;
         """
         cursor.execute(query)
@@ -583,8 +707,8 @@ def process_checkout():
     try:
         cursor = conn.cursor()
 
-        # 1. Get the Buyer ID and phone number
-        cursor.execute("SELECT buyer_id, phone_number FROM buyer WHERE full_name = %s", (buyer_name,))
+        # 1. Get the Buyer ID and email
+        cursor.execute("SELECT buyer_id, email FROM buyer WHERE full_name = %s", (buyer_name,))
         buyer = cursor.fetchone()
         if not buyer:
             return jsonify({"error": "Buyer not found."}), 404
@@ -642,7 +766,7 @@ def process_checkout():
             produce_id, quantity, _price = item
 
             cursor.execute("""
-                SELECT f.phone_number, p.name
+                SELECT f.email, p.name
                 FROM farmer f
                 JOIN produce p ON f.farmer_id = p.farmer_id
                 WHERE p.produce_id = %s
@@ -767,7 +891,7 @@ def get_farmer_orders(farmer_name):
                 p.unit_type,
                 od.subtotal, 
                 b.full_name, 
-                b.phone_number, 
+                b.email, 
                 o.order_status
             FROM order_details od
             JOIN produce p ON od.produce_id = p.produce_id
@@ -830,7 +954,7 @@ def get_buyer_orders(buyer_name):
                 p.unit_type,
                 od.subtotal, 
                 f.full_name, 
-                f.phone_number, 
+                f.email, 
                 o.order_status
             FROM orders o
             JOIN order_details od ON o.order_id = od.order_id

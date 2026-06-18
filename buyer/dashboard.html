@@ -157,7 +157,7 @@
                         <p><strong>Stock:</strong> ${item.stock} ${item.unit}s</p>
                         <p><strong>Farmer:</strong> ${item.farmerName}<br><span style="color: #666; font-size: 0.9rem;">${ratingDisplay}</span></p>
                         <p><strong>Location:</strong> ${item.location}</p>
-                        <p><strong>Phone:</strong> ${item.phone}</p>
+                        <p><strong>Email:</strong> ${item.email || item.phone}</p>
                         <button onclick="addToCart(${item.id})">Add to Cart</button>
                     `;
                     

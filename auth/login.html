@@ -77,6 +77,24 @@
             font-size: 0.9rem;
             display: none; 
         }
+
+        #otpSection {
+            display: none;
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid var(--border-color);
+            text-align: left;
+        }
+
+        #otpSection h3 {
+            margin: 0 0 8px;
+            color: var(--primary-color);
+            font-size: 1rem;
+        }
+
+        #otpSection p {
+            margin: 0 0 10px;
+        }
     </style>
 </head>
 <body>
@@ -89,10 +107,17 @@
             <input type="text" id="name" placeholder="Full Name" required>
             <input type="password" id="password" placeholder="Password" required>
             
-            <button type="submit">Log In</button>
+            <button type="submit">Proceed</button>
             
             <p id="error-message">Invalid name or password.</p>
         </form>
+
+        <div id="otpSection">
+            <h3>Security Verification</h3>
+            <p>An email with a 6-digit code has been sent to your registered address.</p>
+            <input type="text" id="loginOtp" placeholder="Enter Verification Code" maxlength="6">
+            <button type="button" id="verifyOtpBtn">Verify &amp; Login</button>
+        </div>
 
         <div class="links">
             <p>New to Mkulima Direct? <a href="register.html">Sign Up here</a>.</p>
@@ -103,46 +128,92 @@
     <script>
         const loginForm = document.getElementById('loginForm');
         const errorMessage = document.getElementById('error-message');
+        const otpSection = document.getElementById('otpSection');
+        const verifyOtpBtn = document.getElementById('verifyOtpBtn');
 
-        loginForm.addEventListener('submit', async function(event) {
-            event.preventDefault(); 
+        // Global variable to keep track of the email during the 2-step process
+        let currentLoginEmail = '';
 
-            // Extract the name instead of the phone number
-            const nameValue = document.getElementById('name').value;
-            const passwordValue = document.getElementById('password').value;
+        loginForm.addEventListener('submit', handleLogin);
+        verifyOtpBtn.addEventListener('click', verifyLoginOtp);
+
+        async function handleLogin(event) {
+            event.preventDefault();
+
+            const name = document.getElementById('name').value;
+            const password = document.getElementById('password').value;
 
             errorMessage.style.display = 'none';
 
             try {
+                // STEP 1: Verify Password and Trigger Email
                 const response = await fetch('http://localhost:5000/api/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        name: nameValue, // Sending the name to the backend
-                        password: passwordValue
-                    })
+                    body: JSON.stringify({ name, password })
                 });
 
                 const result = await response.json();
 
-                if (response.ok) {
-                    if (result.role === 'farmer') {
-                        localStorage.setItem('currentFarmer', nameValue);
-                        window.location.href = '../farmer/dashboard.html';
-                    } else if (result.role === 'buyer') {
-                        localStorage.setItem('currentBuyer', nameValue);
-                        window.location.href = '../buyer/dashboard.html';
-                    }
-                } else {
-                    errorMessage.textContent = result.error;
-                    errorMessage.style.display = 'block';
+                if (!response.ok) {
+                    alert(result.error);
+                    return;
                 }
+
+                // STEP 2: If backend requires OTP, swap the forms seamlessly
+                if (result.requireOtp) {
+                    currentLoginEmail = result.email; // Save email for the next step
+
+                    // Hide the password form and show the OTP input block
+                    document.getElementById('loginForm').style.display = 'none';
+                    document.getElementById('otpSection').style.display = 'block';
+                }
+
             } catch (error) {
-                console.error('Error:', error);
-                errorMessage.textContent = 'Cannot connect to the server. Is it running?';
-                errorMessage.style.display = 'block';
+                console.error('Login Error:', error);
+                alert('Could not connect to the server.');
             }
-        });
+        }
+
+        async function verifyLoginOtp() {
+            const userCode = document.getElementById('loginOtp').value;
+            const name = document.getElementById('name').value;
+
+            if (!userCode || userCode.length !== 6) {
+                alert('Please enter a valid 6-digit code.');
+                return;
+            }
+
+            try {
+                // STEP 3: Send the code back to Python to complete the login
+                const verifyResponse = await fetch('http://localhost:5000/api/login/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: currentLoginEmail, code: userCode })
+                });
+
+                const verifyResult = await verifyResponse.json();
+
+                if (!verifyResponse.ok) {
+                    alert(verifyResult.error);
+                    return;
+                }
+
+                // LOGIN SUCCESSFUL! Save identity details and route to dashboard
+                localStorage.setItem('currentFarmer', name);
+                localStorage.setItem('currentBuyer', name);
+
+                if (verifyResult.role === 'farmer') {
+                    window.location.href = '../farmer/dashboard.html';
+                } else {
+                    window.location.href = '../buyer/dashboard.html';
+                }
+
+            } catch (error) {
+                console.error('Verification Error:', error);
+                alert('Verification failed. Please try again.');
+            }
+        }
     </script>
 
 </body>

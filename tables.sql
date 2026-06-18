@@ -5,7 +5,7 @@ CREATE DATABASE mkulima;
 CREATE TABLE farmer (
     farmer_id SERIAL PRIMARY KEY,
     full_name VARCHAR(255) NOT NULL,
-    phone_number VARCHAR(20) UNIQUE NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL CHECK (POSITION('@' IN email) > 1),
     farmer_location VARCHAR(255),
     password_hash VARCHAR(255) NOT NULL,
     joined_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -15,7 +15,7 @@ CREATE TABLE farmer (
 CREATE TABLE buyer (
     buyer_id SERIAL PRIMARY KEY,
     full_name VARCHAR(255) NOT NULL,
-    phone_number VARCHAR(20) UNIQUE NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL CHECK (POSITION('@' IN email) > 1),
     delivery_address TEXT,
     password_hash VARCHAR(255) NOT NULL,
     joined_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
