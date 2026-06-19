@@ -55,61 +55,123 @@
         }
         .stat-box h3 { margin: 0; font-size: 2rem; color: var(--text-dark); font-weight: normal; }
         .stat-box p { margin: 5px 0 0; color: #666; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; }
+
+        #data-table {
+            border: 1px solid #cccccc;
+            text-align: left;
+        }
+        #data-table th {
+            background-color: #f4f4f4;
+            padding: 12px;
+            font-size: 0.9rem;
+        }
+        #data-table td {
+            padding: 12px;
+            border-bottom: 1px solid #f0f0f0;
+            font-size: 0.95rem;
+        }
     </style>
 </head>
 <body>
 
     <div class="sidebar">
         <h2>SYSTEM ADMIN</h2>
-        <a href="dashboard.html" class="active">Overview</a>
-        <a href="#">Manage Farmers</a>
-        <a href="#">Manage Buyers</a>
-        <a href="#">Platform Orders</a>
+        <a href="#" onclick="showView('overview')" id="nav-overview" class="active">Overview</a>
+        <a href="#" onclick="showView('farmers')" id="nav-farmers">Manage Farmers</a>
+        <a href="#" onclick="showView('buyers')" id="nav-buyers">Manage Buyers</a>
+        <a href="#" onclick="showView('orders')" id="nav-orders">Platform Orders</a>
         <a href="../index.html" class="logout">Secure Log Out</a>
     </div>
 
-    <div class="main-content">
-        <div class="header">
-            <h1>Platform Overview</h1>
-            <span style="color: #666; font-size: 0.9rem;">Live Data Feed</span>
-        </div>
-
-        <div class="stats-grid">
-            <div class="stat-box">
-                <h3 id="admin-users">...</h3>
-                <p>Total Registered Users</p>
-                <div id="users-breakdown" style="font-size: 0.8rem; color: #2E8B57; font-weight: bold; margin-top: 5px;"></div>
-            </div>
-            <div class="stat-box">
-                <h3 id="admin-produce">...</h3>
-                <p>Active Produce Listings</p>
-            </div>
-        </div>
-
-        <div style="border: 1px solid var(--border-color); padding: 20px; background: #ffffff;">
-            <h2 style="margin-top: 0; font-size: 1.2rem; font-weight: normal; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">Recent System Activity</h2>
-            <div id="activity-feed">
-                <p style="color: #666; font-size: 0.9rem;">Fetching logs...</p>
-            </div>
-        </div>
+    <div class="main-content" id="main-content">
     </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', async () => {
+        document.addEventListener('DOMContentLoaded', () => {
+            showView('overview');
+        });
+
+        async function showView(view) {
+            // 1. Update active class
+            document.querySelectorAll('.sidebar a').forEach(a => a.classList.remove('active'));
+            document.getElementById(`nav-${view}`).classList.add('active');
+
+            const content = document.getElementById('main-content');
+            
+            // IF OVERVIEW: Put the original HTML structure back
+            if (view === 'overview') {
+                content.innerHTML = `
+                    <div class="header"><h1>Platform Overview</h1></div>
+                    <div class="stats-grid">
+                        <div class="stat-box"><h3 id="admin-users">...</h3><p>Total Registered Users</p>
+                        <div id="users-breakdown" style="font-size: 0.8rem; color: #2E8B57; font-weight: bold; margin-top: 5px;"></div></div>
+                        <div class="stat-box"><h3 id="admin-produce">...</h3><p>Active Produce Listings</p></div>
+                    </div>
+                    <div style="border: 1px solid #cccccc; padding: 20px; background: #ffffff;">
+                        <h2 style="margin-top: 0; font-size: 1.2rem; border-bottom: 1px solid #cccccc; padding-bottom: 10px;">Recent System Activity</h2>
+                        <div id="activity-feed"><p style="color: #666; font-size: 0.9rem;">Fetching logs...</p></div>
+                    </div>
+                `;
+                // Re-run the original fetch logic
+                fetchDashboardData();
+                return;
+            }
+
+            // Orders uses custom headers and API mapping for the admin table.
+            if (view === 'orders') {
+                try {
+                    content.innerHTML = `<h1>PLATFORM ORDERS</h1><table id="data-table" border="1" width="100%" style="border-collapse: collapse; margin-top: 20px;"></table>`;
+                    const table = document.getElementById('data-table');
+                    
+                    // Fetch data from your new /api/orders route
+                    const response = await fetch('http://localhost:5000/api/orders');
+                    const data = await response.json();
+
+                    // CUSTOM HEADERS for Orders
+                    let html = '<tr><th>Buyer Name</th><th>Order Details</th><th>Status</th></tr>';
+                    
+                    data.forEach(item => {
+                        html += `
+                            <tr>
+                                <td>${item.fullName}</td>
+                                <td>${item.email}</td> <td>${item.joinedDate}</td> </tr>`;
+                    });
+                    table.innerHTML = html;
+                } catch (e) {
+                    content.innerHTML += '<p style="color:red;">Error loading orders data.</p>';
+                }
+                return;
+            }
+
+            content.innerHTML = `<h1>${view.toUpperCase()}</h1><table id="data-table" border="1" width="100%" style="border-collapse: collapse; margin-top: 20px;"></table>`;
+            
+            // 2. Fetch specific data
+            const table = document.getElementById('data-table');
+            try {
+                let endpoint = view === 'farmers' ? '/api/farmers' : (view === 'buyers' ? '/api/buyers' : '/api/orders');
+                const response = await fetch(`http://localhost:5000${endpoint}`);
+                const data = await response.json();
+
+                // 3. Render Table
+                let html = '<tr><th>Name</th><th>Email</th><th>Joined</th></tr>';
+                data.forEach(item => {
+                    html += `<tr><td>${item.fullName}</td><td>${item.email}</td><td>${item.joinedDate}</td></tr>`;
+                });
+                table.innerHTML = html;
+            } catch(e) {
+                content.innerHTML += `<p style="color:red;">Error loading ${view} data.</p>`;
+            }
+        }
+
+        async function fetchDashboardData() {
             try {
                 const response = await fetch('http://localhost:5000/api/admin/stats');
                 const data = await response.json();
-
                 if (response.ok) {
-                    // 1. Populate Stats
                     document.getElementById('admin-users').textContent = data.totalUsers;
                     document.getElementById('admin-produce').textContent = data.totalProduce;
-                    
-                    // 2. Populate User Breakdown
-                    document.getElementById('users-breakdown').textContent = 
-                        `${data.totalFarmers} Farmers | ${data.totalBuyers} Buyers`;
+                    document.getElementById('users-breakdown').textContent = `${data.totalFarmers} Farmers | ${data.totalBuyers} Buyers`;
 
-                    // 3. Populate Activity Feed
                     const feedContainer = document.getElementById('activity-feed');
                     if (!data.activities || data.activities.length === 0) {
                         feedContainer.innerHTML = '<p style="color: #666;">No recent activity found.</p>';
@@ -126,15 +188,17 @@
                         });
                         feedContainer.innerHTML = feedHtml;
                     }
-
                 } else {
                     document.getElementById('activity-feed').innerHTML = `<p style="color: red;">${data.error}</p>`;
                 }
-            } catch (error) {
-                console.error("Connection error:", error);
-                document.getElementById('activity-feed').innerHTML = '<p style="color: red;">Failed to fetch dashboard metrics.</p>';
+            } catch (e) {
+                console.error("Fetch error:", e);
+                const feedContainer = document.getElementById('activity-feed');
+                if (feedContainer) {
+                    feedContainer.innerHTML = '<p style="color: red;">Failed to fetch dashboard metrics.</p>';
+                }
             }
-        });
+        }
     </script>
 
 </body>

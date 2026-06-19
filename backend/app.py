@@ -455,6 +455,75 @@ def get_admin_stats():
         cursor.close()
         conn.close()
 
+
+@app.route('/api/farmers', methods=['GET'])
+def get_farmers():
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT full_name, email, joined_date FROM farmer ORDER BY joined_date DESC")
+        farmers = [{
+            "fullName": r[0],
+            "email": r[1],
+            "joinedDate": r[2].strftime("%Y-%m-%d") if r[2] else "Unknown"
+        } for r in cursor.fetchall()]
+        return jsonify(farmers)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.route('/api/buyers', methods=['GET'])
+def get_buyers():
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT full_name, email, joined_date FROM buyer ORDER BY joined_date DESC")
+        buyers = [{
+            "fullName": r[0],
+            "email": r[1],
+            "joinedDate": r[2].strftime("%Y-%m-%d") if r[2] else "Unknown"
+        } for r in cursor.fetchall()]
+        return jsonify(buyers)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.route('/api/orders', methods=['GET'])
+def get_orders():
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT o.order_id, b.full_name, o.total_amount, o.order_status
+            FROM orders o JOIN buyer b ON o.buyer_id = b.buyer_id
+        """)
+        orders = [{
+            "fullName": r[1],
+            "email": f"Order #{r[0]} - KSh {r[2]}",
+            "joinedDate": r[3]
+        } for r in cursor.fetchall()]
+        return jsonify(orders)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
 # ----------------------------------------------------
 # ROUTE 5: ADD NEW PRODUCE (Farmer Dashboard)
 # ----------------------------------------------------
