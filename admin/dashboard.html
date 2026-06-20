@@ -70,6 +70,22 @@
             border-bottom: 1px solid #f0f0f0;
             font-size: 0.95rem;
         }
+        .action-btn {
+            border: 1px solid #cccccc;
+            background: #ffffff;
+            color: #333333;
+            padding: 6px 10px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            margin-right: 6px;
+        }
+        .action-btn:hover {
+            background: #f4f4f4;
+        }
+        .action-btn.delete {
+            color: #b94a48;
+            border-color: #e2c3c3;
+        }
     </style>
 </head>
 <body>
@@ -148,18 +164,134 @@
             // 2. Fetch specific data
             const table = document.getElementById('data-table');
             try {
-                let endpoint = view === 'farmers' ? '/api/farmers' : (view === 'buyers' ? '/api/buyers' : '/api/orders');
+                let endpoint = view === 'farmers' ? '/api/farmers' : '/api/buyers';
                 const response = await fetch(`http://localhost:5000${endpoint}`);
                 const data = await response.json();
 
                 // 3. Render Table
-                let html = '<tr><th>Name</th><th>Email</th><th>Joined</th></tr>';
+                let html = '<tr><th>Name</th><th>Email</th><th>Location</th><th>Joined</th><th>Actions</th></tr>';
                 data.forEach(item => {
-                    html += `<tr><td>${item.fullName}</td><td>${item.email}</td><td>${item.joinedDate}</td></tr>`;
+                    html += `
+                        <tr>
+                            <td>${item.fullName}</td>
+                            <td>${item.email}</td>
+                            <td>${item.location || 'Not set'}</td>
+                            <td>${item.joinedDate}</td>
+                            <td>
+                                <button class="action-btn js-edit-user"
+                                    data-view="${view}"
+                                    data-user-id="${item.userId}"
+                                    data-full-name="${escapeHtml(item.fullName)}"
+                                    data-email="${escapeHtml(item.email)}"
+                                    data-location="${escapeHtml(item.location || '')}">Edit</button>
+                                <button class="action-btn delete js-delete-user"
+                                    data-view="${view}"
+                                    data-user-id="${item.userId}"
+                                    data-full-name="${escapeHtml(item.fullName)}">Delete</button>
+                            </td>
+                        </tr>`;
                 });
                 table.innerHTML = html;
+
+                document.querySelectorAll('.js-edit-user').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        editUser(
+                            btn.dataset.view,
+                            Number(btn.dataset.userId),
+                            btn.dataset.fullName,
+                            btn.dataset.email,
+                            btn.dataset.location
+                        );
+                    });
+                });
+
+                document.querySelectorAll('.js-delete-user').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        deleteUser(
+                            btn.dataset.view,
+                            Number(btn.dataset.userId),
+                            btn.dataset.fullName
+                        );
+                    });
+                });
             } catch(e) {
                 content.innerHTML += `<p style="color:red;">Error loading ${view} data.</p>`;
+            }
+        }
+
+        function escapeHtml(value) {
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }
+
+        async function editUser(view, userId, currentName, currentEmail, currentLocation) {
+            const newName = prompt('Edit full name:', currentName);
+            if (newName === null) {
+                return;
+            }
+
+            const newEmail = prompt('Edit email:', currentEmail);
+            if (newEmail === null) {
+                return;
+            }
+
+            const locationLabel = view === 'farmers' ? 'Edit location:' : 'Edit delivery address:';
+            const newLocation = prompt(locationLabel, currentLocation || '');
+            if (newLocation === null) {
+                return;
+            }
+
+            try {
+                const role = view === 'farmers' ? 'farmer' : 'buyer';
+                const response = await fetch(`http://localhost:5000/api/admin/users/${role}/${userId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        fullName: newName.trim(),
+                        email: newEmail.trim(),
+                        location: newLocation.trim()
+                    })
+                });
+
+                const result = await response.json();
+                if (!response.ok) {
+                    alert(result.error || 'Failed to update user.');
+                    return;
+                }
+
+                alert('User updated successfully.');
+                showView(view);
+            } catch (e) {
+                alert('Error updating user.');
+            }
+        }
+
+        async function deleteUser(view, userId, fullName) {
+            const confirmed = confirm(`Delete ${fullName}? This action cannot be undone.`);
+            if (!confirmed) {
+                return;
+            }
+
+            try {
+                const role = view === 'farmers' ? 'farmer' : 'buyer';
+                const response = await fetch(`http://localhost:5000/api/admin/users/${role}/${userId}`, {
+                    method: 'DELETE'
+                });
+
+                const result = await response.json();
+                if (!response.ok) {
+                    alert(result.error || 'Failed to delete user.');
+                    return;
+                }
+
+                alert('User deleted successfully.');
+                showView(view);
+            } catch (e) {
+                alert('Error deleting user.');
             }
         }
 

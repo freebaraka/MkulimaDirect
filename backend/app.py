@@ -464,11 +464,13 @@ def get_farmers():
 
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT full_name, email, joined_date FROM farmer ORDER BY joined_date DESC")
+        cursor.execute("SELECT farmer_id, full_name, email, farmer_location, joined_date FROM farmer ORDER BY joined_date DESC")
         farmers = [{
-            "fullName": r[0],
-            "email": r[1],
-            "joinedDate": r[2].strftime("%Y-%m-%d") if r[2] else "Unknown"
+            "userId": r[0],
+            "fullName": r[1],
+            "email": r[2],
+            "location": r[3] if r[3] else "Not set",
+            "joinedDate": r[4].strftime("%Y-%m-%d") if r[4] else "Unknown"
         } for r in cursor.fetchall()]
         return jsonify(farmers)
     except Exception as e:
@@ -486,11 +488,13 @@ def get_buyers():
 
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT full_name, email, joined_date FROM buyer ORDER BY joined_date DESC")
+        cursor.execute("SELECT buyer_id, full_name, email, delivery_address, joined_date FROM buyer ORDER BY joined_date DESC")
         buyers = [{
-            "fullName": r[0],
-            "email": r[1],
-            "joinedDate": r[2].strftime("%Y-%m-%d") if r[2] else "Unknown"
+            "userId": r[0],
+            "fullName": r[1],
+            "email": r[2],
+            "location": r[3] if r[3] else "Not set",
+            "joinedDate": r[4].strftime("%Y-%m-%d") if r[4] else "Unknown"
         } for r in cursor.fetchall()]
         return jsonify(buyers)
     except Exception as e:
@@ -519,6 +523,98 @@ def get_orders():
         } for r in cursor.fetchall()]
         return jsonify(orders)
     except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.route('/api/admin/users/<role>/<int:user_id>', methods=['PUT'])
+def admin_update_user(role, user_id):
+    role = (role or '').lower()
+    if role not in ['farmer', 'buyer']:
+        return jsonify({"error": "Invalid role."}), 400
+
+    data = request.json or {}
+    full_name = data.get('fullName')
+    email = data.get('email')
+    location = data.get('location')
+
+    if full_name is None and email is None and location is None:
+        return jsonify({"error": "No fields provided to update."}), 400
+
+    if full_name is not None and not NAME_REGEX.match(full_name):
+        return jsonify({"error": "Name must be exactly two words with no numbers or special characters."}), 400
+
+    if email is not None and not EMAIL_REGEX.match(email):
+        return jsonify({"error": "Please enter a valid email address."}), 400
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+        table_name = 'farmer' if role == 'farmer' else 'buyer'
+        id_column = 'farmer_id' if role == 'farmer' else 'buyer_id'
+
+        update_parts = []
+        values = []
+        if full_name is not None:
+            update_parts.append('full_name = %s')
+            values.append(full_name)
+        if email is not None:
+            update_parts.append('email = %s')
+            values.append(email)
+        if location is not None:
+            location_column = 'farmer_location' if role == 'farmer' else 'delivery_address'
+            update_parts.append(f"{location_column} = %s")
+            values.append(location)
+
+        values.append(user_id)
+        query = f"UPDATE {table_name} SET {', '.join(update_parts)} WHERE {id_column} = %s"
+        cursor.execute(query, tuple(values))
+
+        if cursor.rowcount == 0:
+            conn.rollback()
+            return jsonify({"error": "User not found."}), 404
+
+        conn.commit()
+        return jsonify({"message": "User updated successfully."}), 200
+    except Exception as e:
+        conn.rollback()
+        if "unique constraint" in str(e).lower():
+            return jsonify({"error": "This email is already registered."}), 409
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.route('/api/admin/users/<role>/<int:user_id>', methods=['DELETE'])
+def admin_delete_user(role, user_id):
+    role = (role or '').lower()
+    if role not in ['farmer', 'buyer']:
+        return jsonify({"error": "Invalid role."}), 400
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+        table_name = 'farmer' if role == 'farmer' else 'buyer'
+        id_column = 'farmer_id' if role == 'farmer' else 'buyer_id'
+
+        cursor.execute(f"DELETE FROM {table_name} WHERE {id_column} = %s", (user_id,))
+        if cursor.rowcount == 0:
+            conn.rollback()
+            return jsonify({"error": "User not found."}), 404
+
+        conn.commit()
+        return jsonify({"message": "User deleted successfully."}), 200
+    except Exception as e:
+        conn.rollback()
         return jsonify({"error": str(e)}), 500
     finally:
         cursor.close()
