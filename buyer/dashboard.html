@@ -117,40 +117,55 @@
         </div>
 
         <h2 style="margin-top: 0; font-size: 1.4rem; color: #333;">Featured Produce</h2>
-        
-        <div class="market-grid" id="market-grid">
+
+        <div style="margin-bottom: 20px;">
+            <input type="text" id="produceSearch"
+                   placeholder="Search for fresh produce (e.g., Cabbage)..."
+                   onkeyup="filterProduce()"
+                   style="width: 100%; padding: 12px; border: 1px solid #cccccc; font-size: 1rem;">
+        </div>
+
+        <div class="market-grid" id="produce-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 20px;">
             <div class="loading">Loading fresh produce from the database... ⏳</div>
         </div>
     </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', async () => {
-            const marketGrid = document.getElementById('market-grid');
+        // Keep a master list so search can filter and re-render accurately.
+        let allProduce = [];
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadProduce();
+        });
+
+        async function loadProduce() {
+            const container = document.getElementById('produce-container');
 
             try {
-                // Fetch the live produce data from Python
                 const response = await fetch('http://localhost:5000/api/produce');
-                const produceList = await response.json();
+                allProduce = await response.json();
+                renderProduce(allProduce);
+            } catch (error) {
+                console.error('Error fetching produce:', error);
+                container.innerHTML = '<div class="loading" style="color: red;">Failed to connect to the server.</div>';
+            }
+        }
 
-                // Clear the "Loading" message
-                marketGrid.innerHTML = '';
+        function renderProduce(list) {
+            const container = document.getElementById('produce-container');
 
-                if (produceList.length === 0) {
-                    marketGrid.innerHTML = '<div class="loading">No produce available right now. Check back later!</div>';
-                    return;
-                }
+            if (!Array.isArray(list) || list.length === 0) {
+                container.innerHTML = '<div class="loading">No produce available right now. Check back later!</div>';
+                return;
+            }
 
-                // Loop through every item and build an HTML card for it
-                produceList.forEach(item => {
-                    const card = document.createElement('div');
-                    card.className = 'product-card';
+            container.innerHTML = list.map(item => {
+                const ratingDisplay = item.reviews > 0
+                    ? `★ ${item.rating}/5 (${item.reviews})`
+                    : 'New Farmer';
 
-                    // Show rating if reviews exist, otherwise mark as a new farmer
-                    const ratingDisplay = item.reviews > 0
-                        ? `★ ${item.rating}/5 (${item.reviews})`
-                        : 'New Farmer';
-                    
-                    card.innerHTML = `
+                return `
+                    <div class="product-card">
                         <h3>${item.name}</h3>
                         <p>${item.description || ''}</p>
                         <span class="price">KSh ${item.price} / ${item.unit}</span>
@@ -159,17 +174,10 @@
                         <p><strong>Location:</strong> ${item.location}</p>
                         <p><strong>Email:</strong> ${item.email || item.phone}</p>
                         <button onclick="addToCart(${item.id})">Add to Cart</button>
-                    `;
-                    
-                    // Add the finished card to the screen
-                    marketGrid.appendChild(card);
-                });
-
-            } catch (error) {
-                console.error('Error fetching produce:', error);
-                marketGrid.innerHTML = '<div class="loading" style="color: red;">Failed to connect to the server.</div>';
-            }
-        });
+                    </div>
+                `;
+            }).join('');
+        }
         // Function to actually send the item to the database cart
         async function addToCart(produceId) {
             // Use the buyer name saved at login so we don't repeatedly prompt on every click
@@ -202,6 +210,18 @@
                 console.error('Error:', error);
                 alert("Cannot connect to the server.");
             }
+        }
+
+        function filterProduce() {
+            const searchTerm = document.getElementById('produceSearch').value.toLowerCase();
+
+            const filtered = allProduce.filter(item => {
+                const name = (item.name || '').toLowerCase();
+                const description = (item.description || '').toLowerCase();
+                return name.includes(searchTerm) || description.includes(searchTerm);
+            });
+
+            renderProduce(filtered);
         }
     </script>
 
