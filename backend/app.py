@@ -1270,5 +1270,5 @@ def delete_produce(produce_id):
 # START THE SERVER
 # ----------------------------------------------------
 if __name__ == '__main__':
-    print("🚀 Mkulima Direct API is running on http://localhost:5000")
+    print("Mkulima Direct API is running on http://localhost:5000")
     app.run(debug=True, port=5000)
