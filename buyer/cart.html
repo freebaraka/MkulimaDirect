@@ -41,7 +41,17 @@
         .sidebar a:hover, .sidebar a.active {
             background-color: #eeeeee; border-left-color: var(--primary-color); color: var(--primary-color);
         }
-        .logout { margin-top: auto; margin-bottom: 20px; color: var(--danger-color) !important; }
+        .sidebar a.support-link {
+            color: var(--primary-color);
+            font-weight: bold;
+            background-color: #edf8f2;
+            border-left-color: var(--primary-color);
+            margin-top: auto;
+        }
+        .sidebar a.support-link:hover {
+            background-color: #e0f1e9;
+        }
+        .logout { margin-top: 12px; margin-bottom: 20px; color: var(--danger-color) !important; }
 
         /* Main Content */
         .main-content { flex: 1; padding: 40px; overflow-y: auto; }
@@ -87,6 +97,7 @@
         <a href="cart.html" class="active">My Cart</a>
         <a href="#">Order History</a>
         <a href="#">Account Settings</a>
+        <a href="../complaints.html" class="support-link">Need Help? Submit Complaint</a>
         <a href="../index.html" class="logout">Log Out</a>
     </div>
 

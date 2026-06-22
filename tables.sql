@@ -111,3 +111,13 @@ CREATE TABLE farmer_ratings (
 );
 
 Select * from farmer;
+-- Complaints table
+CREATE TABLE complaints (
+    complaint_id SERIAL PRIMARY KEY,
+    user_name VARCHAR(255) NOT NULL,
+    user_role VARCHAR(50) NOT NULL, -- 'farmer' or 'buyer'
+    subject VARCHAR(255) NOT NULL,
+    description TEXT NOT NULL,
+    status VARCHAR(50) DEFAULT 'Pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

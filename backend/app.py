@@ -1266,6 +1266,33 @@ def delete_produce(produce_id):
     finally:
         cursor.close()
         conn.close()
+
+
+@app.route('/api/complaints', methods=['POST'])
+def submit_complaint():
+    data = request.json
+    user_name = data.get('userName')
+    user_role = data.get('userRole')
+    subject = data.get('subject')
+    description = data.get('description')
+
+    if not all([user_name, user_role, subject, description]):
+        return jsonify({"error": "All fields are required"}), 400
+
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO complaints (user_name, user_role, subject, description) VALUES (%s, %s, %s, %s)",
+            (user_name, user_role, subject, description)
+        )
+        conn.commit()
+        return jsonify({"message": "Complaint submitted successfully!"}), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
 # ----------------------------------------------------
 # START THE SERVER
 # ----------------------------------------------------

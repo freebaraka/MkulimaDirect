@@ -53,7 +53,19 @@
             color: var(--primary-color);
         }
 
-        .logout { margin-top: auto; margin-bottom: 20px; color: #d9534f !important; }
+        .sidebar a.support-link {
+            color: var(--primary-color);
+            font-weight: bold;
+            background-color: #edf8f2;
+            border-left-color: var(--primary-color);
+            margin-top: auto;
+        }
+
+        .sidebar a.support-link:hover {
+            background-color: #e0f1e9;
+        }
+
+        .logout { margin-top: 12px; margin-bottom: 20px; color: #d9534f !important; }
 
         .main-content { flex: 1; padding: 40px; overflow-y: auto; }
 
@@ -107,6 +119,7 @@
         <a href="dashboard.html" class="active">Marketplace</a>
         <a href="cart.html">My Cart (<span id="cart-count">0</span>)</a>
         <a href="order-history.html">Order History</a>
+        <a href="../complaints.html" class="support-link">Need Help? Submit Complaint</a>
         <a href="../index.html" class="logout">Log Out</a>
     </div>
 
