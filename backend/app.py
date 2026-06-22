@@ -861,9 +861,10 @@ def remove_from_cart(cart_id):
 def process_checkout():
     data = request.json
     buyer_name = data.get('buyerName')
+    delivery_address = (data.get('deliveryAddress') or '').strip()
 
-    if not buyer_name:
-        return jsonify({"error": "Buyer name is required"}), 400
+    if not buyer_name or not delivery_address:
+        return jsonify({"error": "Buyer name and delivery address are required"}), 400
 
     conn = get_db_connection()
     if not conn:
@@ -902,14 +903,14 @@ def process_checkout():
         """, (buyer_id, grand_total))
         order_id = cursor.fetchone()[0]
 
-        # 4. Move items from Cart to `order_details`
+        # 4. Move items from Cart to `order_details` and keep delivery address per line item
         for item in cart_items:
             produce_id, quantity, price = item
             subtotal = quantity * price
             cursor.execute("""
-                INSERT INTO order_details (order_id, produce_id, quantity, price_at_time_of_order, subtotal)
-                VALUES (%s, %s, %s, %s, %s)
-            """, (order_id, produce_id, quantity, price, subtotal))
+                INSERT INTO order_details (order_id, produce_id, quantity, price_at_time_of_order, subtotal, delivery_address)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (order_id, produce_id, quantity, price, subtotal, delivery_address))
             
             # (Optional but cool: Subtract the quantity from the farmer's stock here!)
             # cursor.execute("UPDATE produce SET stock_quantity = stock_quantity - %s WHERE produce_id = %s", (quantity, produce_id))
@@ -944,7 +945,7 @@ def process_checkout():
 
                 sms_message = (
                     f"Mkulima Direct: New Order! {buyer_name} ({buyer_phone}) "
-                    f"has ordered {quantity} of {produce_name}. Please prepare for delivery."
+                    f"has ordered {quantity} of {produce_name}. Deliver to: {delivery_address}."
                 )
 
                 if send_email(farmer_phone, "Mkulima Direct New Order Alert", sms_message):
