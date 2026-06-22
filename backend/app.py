@@ -1293,6 +1293,33 @@ def submit_complaint():
     finally:
         cursor.close()
         conn.close()
+
+
+@app.route('/api/admin/complaints', methods=['GET'])
+def get_complaints():
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT user_name, user_role, subject, description, status FROM complaints ORDER BY created_at DESC")
+        complaints = [
+            {
+                "userName": r[0],
+                "userRole": r[1],
+                "subject": r[2],
+                "description": r[3],
+                "status": r[4]
+            }
+            for r in cursor.fetchall()
+        ]
+        return jsonify(complaints)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
 # ----------------------------------------------------
 # START THE SERVER
 # ----------------------------------------------------
