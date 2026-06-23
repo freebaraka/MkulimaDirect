@@ -136,3 +136,13 @@ ALTER TABLE orders DROP CONSTRAINT orders_buyer_id_fkey;
 ALTER TABLE orders ADD CONSTRAINT orders_buyer_id_fkey FOREIGN KEY (buyer_id) REFERENCES buyer(buyer_id);
 
 ALTER TABLE produce ADD COLUMN available_quantity INT DEFAULT 0;
+
+-- Audit logs table creation
+CREATE TABLE audit_logs (
+    log_id SERIAL PRIMARY KEY,
+    user_name VARCHAR(255) NOT NULL,
+    user_role VARCHAR(50) NOT NULL,
+    login_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    logout_time TIMESTAMP,
+    session_duration_minutes INT DEFAULT 0
+);

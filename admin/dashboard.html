@@ -97,6 +97,7 @@
         <a href="#" onclick="showView('buyers')" id="nav-buyers">Manage Buyers</a>
         <a href="#" onclick="showView('orders')" id="nav-orders">Platform Orders</a>
         <a href="#" onclick="showView('ratings')" id="nav-ratings">Farmer Ratings</a>
+        <a href="#" onclick="showView('audit')" id="nav-audit">System Audit Logs</a>
         <a href="#" onclick="showView('complaints')" id="nav-complaints">View Complaints</a>
         <a href="../index.html" class="logout">Secure Log Out</a>
     </div>
@@ -208,6 +209,31 @@
                     table.innerHTML = html;
                 } catch (e) {
                     content.innerHTML += `<p style="color:red;">Error loading ratings.</p>`;
+                }
+                return;
+            }
+
+            if (view === 'audit') {
+                content.innerHTML = `<h1>SYSTEM AUDIT LOGS</h1><table id="data-table" border="1" width="100%" style="border-collapse: collapse; margin-top: 20px;"></table>`;
+                const table = document.getElementById('data-table');
+
+                try {
+                    const response = await fetch('http://localhost:5000/api/admin/audit');
+                    const logs = await response.json();
+
+                    let html = '<tr><th>User</th><th>Role</th><th>Login Time</th><th>Logout Time</th><th>Duration (min)</th></tr>';
+                    logs.forEach(log => {
+                        html += `<tr>
+                            <td>${log.userName}</td>
+                            <td>${log.userRole}</td>
+                            <td>${log.login}</td>
+                            <td>${log.logout || 'Active'}</td>
+                            <td>${log.duration}</td>
+                        </tr>`;
+                    });
+                    table.innerHTML = html;
+                } catch (e) {
+                    content.innerHTML += `<p style="color:red;">Error loading audit logs.</p>`;
                 }
                 return;
             }

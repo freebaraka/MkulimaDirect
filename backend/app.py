@@ -148,6 +148,110 @@ def ensure_checkout_contact_columns():
 
 ensure_checkout_contact_columns()
 
+
+def ensure_audit_logs_table():
+    """Ensures audit_logs exists for login/logout session tracking."""
+    conn = get_db_connection()
+    if not conn:
+        return
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS audit_logs (
+                log_id SERIAL PRIMARY KEY,
+                user_name VARCHAR(255) NOT NULL,
+                user_role VARCHAR(50) NOT NULL,
+                login_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                logout_time TIMESTAMP,
+                session_duration_minutes DECIMAL(10, 2)
+            )
+        """)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"Warning: could not ensure audit_logs table: {e}")
+    finally:
+        cursor.close()
+        conn.close()
+
+
+ensure_audit_logs_table()
+
+
+def record_login_audit(user_name, user_role):
+    """Creates a login audit row and returns its id when possible."""
+    conn = get_db_connection()
+    if not conn:
+        return None
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO audit_logs (user_name, user_role) VALUES (%s, %s) RETURNING log_id",
+            (user_name, user_role)
+        )
+        log_id = cursor.fetchone()[0]
+        conn.commit()
+        return log_id
+    except Exception as e:
+        conn.rollback()
+        print(f"Warning: could not insert audit login row: {e}")
+        return None
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.route('/api/auth/login', methods=['POST'])
+def audit_login():
+    data = request.json or {}
+    username = (data.get('userName') or data.get('username') or '').strip()
+    role = (data.get('role') or data.get('userRole') or '').strip().lower()
+
+    if not username or not role:
+        return jsonify({"error": "userName and role are required."}), 400
+
+    record_login_audit(username, role)
+    return jsonify({"message": "Logged in"}), 200
+
+
+@app.route('/api/auth/logout', methods=['POST'])
+def audit_logout():
+    data = request.json or {}
+    username = (data.get('userName') or data.get('username') or '').strip()
+
+    if not username:
+        return jsonify({"error": "userName is required."}), 400
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE audit_logs
+            SET logout_time = CURRENT_TIMESTAMP,
+                session_duration_minutes = ROUND((EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - login_time)) / 60.0)::numeric, 2)
+            WHERE log_id = (
+                SELECT log_id
+                FROM audit_logs
+                WHERE user_name = %s AND logout_time IS NULL
+                ORDER BY login_time DESC
+                LIMIT 1
+            )
+        """, (username,))
+
+        conn.commit()
+        return jsonify({"message": "Logged out"}), 200
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
 # ----------------------------------------------------
 # ROUTE: SIGNUP REQUEST OTP 
 # ----------------------------------------------------
@@ -384,6 +488,10 @@ def login_verify():
 
     # Success! Grab the role so the frontend knows where to redirect
     role = stored_data['role']
+    user_name = stored_data['name']
+
+    # Record a login audit row for this new authenticated session.
+    record_login_audit(user_name, role)
     
     # Clear the OTP memory so the code can't be reused
     del OTP_STORE[f"login_{email}"]
@@ -1639,6 +1747,39 @@ def get_ratings():
             for r in cursor.fetchall()
         ]
         return jsonify(ratings)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.route('/api/admin/audit', methods=['GET'])
+def get_audit_logs():
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT user_name, user_role, login_time, logout_time, session_duration_minutes
+            FROM audit_logs
+            ORDER BY login_time DESC
+        """)
+
+        logs = [
+            {
+                "userName": row[0],
+                "userRole": row[1],
+                "login": row[2].strftime("%Y-%m-%d %H:%M:%S") if row[2] else "Unknown",
+                "logout": row[3].strftime("%Y-%m-%d %H:%M:%S") if row[3] else None,
+                "duration": float(row[4]) if row[4] is not None else 0
+            }
+            for row in cursor.fetchall()
+        ]
+
+        return jsonify(logs), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     finally:
