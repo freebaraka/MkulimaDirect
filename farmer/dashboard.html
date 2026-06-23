@@ -201,11 +201,13 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', async () => {
-            const farmerName = prompt("Please confirm your registered Farmer Name to view your dashboard:");
-            if (!farmerName) return;
+            const farmerName = localStorage.getItem('currentFarmer');
+            if (!farmerName) {
+                alert('You must log in to access the dashboard.');
+                window.location.href = '../index.html';
+                return;
+            }
 
-            // Save to localStorage so they don't have to type it again when switching tabs!
-            localStorage.setItem('currentFarmer', farmerName);
             document.getElementById('farmer-greeting').textContent = `Welcome back, ${farmerName}!`;
 
             try {

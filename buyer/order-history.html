@@ -75,7 +75,6 @@
         <a href="dashboard.html">Marketplace</a>
         <a href="cart.html">My Cart</a>
         <a href="order-history.html" class="active">Order History</a>
-        <a href="#">Account Settings</a>
         <a href="../complaints.html" class="support-link">Need Help? Submit Complaint</a>
         <a href="../index.html" class="logout">Log Out</a>
     </div>
@@ -93,10 +92,11 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', async () => {
-            const buyerName = prompt("Please confirm your Buyer Name to view your history:");
-            
+            const buyerName = localStorage.getItem('currentBuyer');
+
             if (!buyerName) {
-                document.getElementById('orders-container').innerHTML = '<p>Please refresh and enter your name to view history.</p>';
+                alert('You must log in to access your order history.');
+                window.location.href = '../index.html';
                 return;
             }
 

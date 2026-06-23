@@ -147,7 +147,19 @@
         // Keep a master list so search can filter and re-render accurately.
         let allProduce = [];
 
+        // Put this at the very top of your <script> tag
         document.addEventListener('DOMContentLoaded', () => {
+            // Check if the user is logged in
+            const buyerName = localStorage.getItem('currentBuyer');
+            const farmerName = localStorage.getItem('currentFarmer');
+
+            // If neither exists, they haven't logged in
+            if (!buyerName && !farmerName) {
+                alert('You must log in to access the dashboard.');
+                window.location.href = '../index.html';
+                return;
+            }
+
             loadProduce();
         });
 

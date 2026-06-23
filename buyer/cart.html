@@ -95,8 +95,7 @@
         <h2>Buyer Panel</h2>
         <a href="dashboard.html">Marketplace</a>
         <a href="cart.html" class="active">My Cart</a>
-        <a href="#">Order History</a>
-        <a href="#">Account Settings</a>
+        <a href="order-history.html">Order History</a>
         <a href="../complaints.html" class="support-link">Need Help? Submit Complaint</a>
         <a href="../index.html" class="logout">Log Out</a>
     </div>
@@ -114,11 +113,11 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', async () => {
-            // Ask for the buyer's name to fetch their specific cart
-            const buyerName = prompt("Please confirm your Buyer Name to view your cart:");
-            
+            const buyerName = localStorage.getItem('currentBuyer');
+
             if (!buyerName) {
-                document.getElementById('cart-container').innerHTML = '<p>Please refresh and enter your name to view your cart.</p>';
+                alert('You must log in to access your cart.');
+                window.location.href = '../index.html';
                 return;
             }
 
