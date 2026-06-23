@@ -11,6 +11,8 @@
         .status-badge { padding: 5px 10px; border-radius: 4px; font-weight: bold; font-size: 0.85rem; }
         .status-pending { background-color: #fff3cd; color: #856404; }
         .status-delivered { background-color: #d4edda; color: #155724; }
+        .status-completed { background-color: #cfe2ff; color: #084298; }
+        .status-cancelled { background-color: #f8d7da; color: #842029; }
 
         :root {
             --primary-color: #2E8B57;
@@ -129,6 +131,14 @@
         .loading-text {
             color: #666;
         }
+
+        .status-select {
+            padding: 6px 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background: #fff;
+            font-size: 0.9rem;
+        }
     </style>
 </head>
 <body>
@@ -187,17 +197,23 @@
                                 <th>Earnings</th>
                                 <th>Buyer</th>
                                 <th>Status</th>
-                                <th>Action</th>
+                                <th>Update Status</th>
                             </tr>
                         </thead>
                         <tbody>
                 `;
 
                 orders.forEach(order => {
-                    const statusClass = order.status === 'Pending' ? 'status-pending' : 'status-delivered';
-                    const actionBtn = order.status === 'Pending'
-                        ? `<button class="action-btn" onclick="markDelivered(${order.orderId})">Mark Delivered</button>`
-                        : '<button class="action-btn disabled" disabled>Completed</button>';
+                    const statusClass = `status-${String(order.status || 'pending').toLowerCase()}`;
+                    const isPending = order.status === 'Pending';
+                    const statusSelect = `
+                        <select class="status-select" onchange="changeStatus('${order.orderId}', this.value)" ${isPending ? '' : 'disabled'}>
+                            <option value="Pending" ${order.status === 'Pending' ? 'selected' : ''}>Pending</option>
+                            <option value="Delivered" ${order.status === 'Delivered' ? 'selected' : ''}>Delivered</option>
+                            <option value="Completed" ${order.status === 'Completed' ? 'selected' : ''}>Completed</option>
+                            <option value="Cancelled" ${order.status === 'Cancelled' ? 'selected' : ''}>Cancelled</option>
+                        </select>
+                    `;
 
                     html += `
                         <tr>
@@ -208,7 +224,7 @@
                             <td>KSh ${order.subtotal}</td>
                             <td>${order.buyerName}<br><span style="color:#666; font-size:0.85rem;">${order.buyerPhone}</span></td>
                             <td><span class="status-badge ${statusClass}">${order.status}</span></td>
-                            <td>${actionBtn}</td>
+                            <td>${statusSelect}</td>
                         </tr>
                     `;
                 });
@@ -225,13 +241,29 @@
             }
         }
 
-        async function markDelivered(orderId) {
-            if (!confirm('Mark this order as delivered?')) return;
+        async function changeStatus(orderId, newStatus) {
+            console.log('Updating order', orderId, 'to', newStatus);
+
             try {
-                await fetch(`http://localhost:5000/api/orders/${orderId}/deliver`, { method: 'PUT' });
-                fetchFarmerOrders(localStorage.getItem('currentFarmer'));
-            } catch (e) {
-                console.error(e);
+                const response = await fetch('http://localhost:5000/api/farmer/update_order', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        orderId: orderId,
+                        status: newStatus,
+                        farmerName: localStorage.getItem('currentFarmer')
+                    })
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    alert('Status updated successfully!');
+                    location.reload();
+                } else {
+                    alert('Error: ' + result.error);
+                }
+            } catch (error) {
+                console.error('Fetch error:', error);
             }
         }
     </script>

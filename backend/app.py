@@ -1089,7 +1089,160 @@ def get_farmer_orders(farmer_name):
         return jsonify({"error": str(e)}), 500
     finally:
         cursor.close()
-        conn.close()    
+        conn.close()
+
+
+@app.route('/api/farmer/orders/<farmer_name>/<int:order_id>/status', methods=['PUT'])
+def update_farmer_order_status(farmer_name, order_id):
+    data = request.json or {}
+    requested_status = (data.get('status') or '').strip().lower()
+
+    allowed_status_map = {
+        'delivered': 'Delivered',
+        'cancelled': 'Cancelled',
+        'completed': 'Completed'
+    }
+
+    if requested_status not in allowed_status_map:
+        return jsonify({"error": "Invalid status. Allowed: delivered, cancelled, completed."}), 400
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT farmer_id FROM farmer WHERE full_name = %s", (farmer_name,))
+        farmer = cursor.fetchone()
+        if not farmer:
+            return jsonify({"error": "Farmer not found."}), 404
+        farmer_id = farmer[0]
+
+        # Ensure this order belongs to at least one produce item owned by the farmer.
+        cursor.execute("""
+            SELECT o.order_status
+            FROM orders o
+            JOIN order_details od ON o.order_id = od.order_id
+            JOIN produce p ON od.produce_id = p.produce_id
+            WHERE o.order_id = %s AND p.farmer_id = %s
+            LIMIT 1
+        """, (order_id, farmer_id))
+        order_row = cursor.fetchone()
+
+        if not order_row:
+            return jsonify({"error": "Order not found for this farmer."}), 404
+
+        current_status = (order_row[0] or '').strip().lower()
+        if current_status != 'pending':
+            return jsonify({"error": "Only pending orders can be updated by farmers."}), 409
+
+        new_status = allowed_status_map[requested_status]
+        cursor.execute(
+            "UPDATE orders SET order_status = %s WHERE order_id = %s",
+            (new_status, order_id)
+        )
+
+        conn.commit()
+        return jsonify({"message": "Order status updated successfully.", "orderId": order_id, "status": new_status}), 200
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.route('/api/farmer/update_order', methods=['POST'])
+def update_order_status():
+    data = request.json or {}
+    order_id = data.get('orderId')
+    new_status = (data.get('status') or '').strip().title()
+    farmer_name = (data.get('farmerName') or '').strip()
+
+    if not order_id or not farmer_name or not new_status:
+        return jsonify({"error": "orderId, status, and farmerName are required."}), 400
+
+    try:
+        order_id = int(order_id)
+    except (TypeError, ValueError):
+        return jsonify({"error": "orderId must be a valid number."}), 400
+
+    if new_status not in {'Delivered', 'Completed', 'Cancelled'}:
+        return jsonify({"error": "Invalid status. Use Delivered, Completed, or Cancelled."}), 400
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+        # Confirm the order exists and is still pending before attempting update.
+        cursor.execute("SELECT order_status FROM orders WHERE order_id = %s", (order_id,))
+        order_row = cursor.fetchone()
+        if not order_row:
+            return jsonify({"error": "Order not found."}), 404
+
+        if (order_row[0] or '').strip().lower() != 'pending':
+            return jsonify({"error": "Only pending orders can be updated."}), 409
+
+        # Ensure the farmer actually owns this order before updating
+        cursor.execute("""
+            UPDATE orders
+            SET order_status = %s
+            WHERE order_id = %s
+            AND EXISTS (
+                SELECT 1
+                FROM produce p
+                JOIN order_details od ON p.produce_id = od.produce_id
+                JOIN farmer f ON f.farmer_id = p.farmer_id
+                WHERE od.order_id = %s
+                AND LOWER(TRIM(f.full_name)) = LOWER(TRIM(%s))
+            )
+        """, (new_status, order_id, order_id, farmer_name))
+
+        if cursor.rowcount == 0:
+            conn.rollback()
+            return jsonify({"error": "Order does not belong to this farmer."}), 403
+
+        conn.commit()
+        return jsonify({"message": "Order status updated successfully!", "orderId": order_id, "status": new_status}), 200
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.route('/api/orders/<int:order_id>/deliver', methods=['PUT'])
+def mark_order_delivered(order_id):
+    """Backward-compatible endpoint used by older farmer UI."""
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT order_status FROM orders WHERE order_id = %s", (order_id,))
+        row = cursor.fetchone()
+        if not row:
+            return jsonify({"error": "Order not found."}), 404
+
+        current_status = (row[0] or '').strip().lower()
+        if current_status != 'pending':
+            return jsonify({"error": "Only pending orders can be marked delivered."}), 409
+
+        cursor.execute("UPDATE orders SET order_status = 'Delivered' WHERE order_id = %s", (order_id,))
+        conn.commit()
+        return jsonify({"message": "Order marked as delivered.", "orderId": order_id, "status": "Delivered"}), 200
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
 # ----------------------------------------------------
 # ROUTE 13: BUYER ORDER HISTORY
 # ----------------------------------------------------
