@@ -96,6 +96,7 @@
         <a href="#" onclick="showView('farmers')" id="nav-farmers">Manage Farmers</a>
         <a href="#" onclick="showView('buyers')" id="nav-buyers">Manage Buyers</a>
         <a href="#" onclick="showView('orders')" id="nav-orders">Platform Orders</a>
+        <a href="#" onclick="showView('ratings')" id="nav-ratings">Farmer Ratings</a>
         <a href="#" onclick="showView('complaints')" id="nav-complaints">View Complaints</a>
         <a href="../index.html" class="logout">Secure Log Out</a>
     </div>
@@ -181,6 +182,32 @@
                     table.innerHTML = html;
                 } catch (e) {
                     content.innerHTML += `<p style="color:red;">Error loading complaints.</p>`;
+                }
+                return;
+            }
+
+            if (view === 'ratings') {
+                content.innerHTML = `<h1>FARMER RATINGS</h1><table id="data-table" border="1" width="100%" style="border-collapse: collapse; margin-top: 20px;"></table>`;
+                const table = document.getElementById('data-table');
+
+                try {
+                    const response = await fetch('http://localhost:5000/api/admin/ratings');
+                    const data = await response.json();
+
+                    // Header for Ratings Table
+                    let html = '<tr><th>Farmer Name</th><th>Buyer Name</th><th>Rating (1-5)</th><th>Date</th></tr>';
+
+                    data.forEach(item => {
+                        html += `<tr>
+                            <td>${item.farmerName}</td>
+                            <td>${item.buyerName}</td>
+                            <td>${item.ratingValue} / 5</td>
+                            <td>${item.date}</td>
+                        </tr>`;
+                    });
+                    table.innerHTML = html;
+                } catch (e) {
+                    content.innerHTML += `<p style="color:red;">Error loading ratings.</p>`;
                 }
                 return;
             }

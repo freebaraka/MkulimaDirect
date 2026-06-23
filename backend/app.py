@@ -1320,6 +1320,40 @@ def get_complaints():
     finally:
         cursor.close()
         conn.close()
+
+
+@app.route('/api/admin/ratings', methods=['GET'])
+def get_ratings():
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+        # Join tables to get readable names
+        cursor.execute("""
+            SELECT f.full_name, b.full_name, r.rating_value, r.created_at
+            FROM farmer_ratings r
+            JOIN farmer f ON r.farmer_id = f.farmer_id
+            JOIN buyer b ON r.buyer_id = b.buyer_id
+            ORDER BY r.created_at DESC
+        """)
+        ratings = [
+            {
+                "farmerName": r[0],
+                "buyerName": r[1],
+                "ratingValue": r[2],
+                "date": r[3].strftime("%Y-%m-%d") if r[3] else "Unknown"
+            }
+            for r in cursor.fetchall()
+        ]
+        return jsonify(ratings)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
 # ----------------------------------------------------
 # START THE SERVER
 # ----------------------------------------------------
