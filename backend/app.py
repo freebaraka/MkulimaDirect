@@ -840,7 +840,7 @@ def view_cart(buyer_name):
 
         # 2. Get the cart items linked to this buyer
         query = """
-            SELECT c.cart_id, p.name, p.price_per_unit, p.unit_type, c.quantity, (p.price_per_unit * c.quantity) as subtotal
+            SELECT c.cart_id, c.produce_id, p.name, p.price_per_unit, p.unit_type, c.quantity, (p.price_per_unit * c.quantity) as subtotal
             FROM cart c
             JOIN produce p ON c.produce_id = p.produce_id
             WHERE c.buyer_id = %s
@@ -853,20 +853,70 @@ def view_cart(buyer_name):
         grand_total = 0
 
         for item in items:
-            subtotal = item[5]
+            subtotal = item[6]
             grand_total += subtotal
             cart_list.append({
                 "cartId": item[0],
-                "name": item[1],
-                "price": item[2],
-                "unit": item[3],
-                "quantity": item[4],
+                "produceId": item[1],
+                "name": item[2],
+                "price": item[3],
+                "unit": item[4],
+                "quantity": item[5],
                 "subtotal": subtotal
             })
 
         return jsonify({"items": cart_list, "grandTotal": grand_total}), 200
 
     except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.route('/api/cart/update', methods=['POST'])
+def update_cart_quantity():
+    data = request.json or {}
+    buyer_name = data.get('buyerName')
+    produce_id = data.get('produceId')
+    new_quantity = data.get('newQuantity')
+
+    if not buyer_name or produce_id is None or new_quantity is None:
+        return jsonify({"error": "buyerName, produceId, and newQuantity are required."}), 400
+
+    try:
+        produce_id = int(produce_id)
+        new_quantity = int(new_quantity)
+        if new_quantity < 1:
+            return jsonify({"error": "Quantity must be at least 1."}), 400
+    except (TypeError, ValueError):
+        return jsonify({"error": "produceId and newQuantity must be valid numbers."}), 400
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT buyer_id FROM buyer WHERE full_name = %s", (buyer_name,))
+        buyer = cursor.fetchone()
+        if not buyer:
+            return jsonify({"error": "Buyer not found."}), 404
+
+        buyer_id = buyer[0]
+        cursor.execute(
+            "UPDATE cart SET quantity = %s WHERE buyer_id = %s AND produce_id = %s",
+            (new_quantity, buyer_id, produce_id)
+        )
+
+        if cursor.rowcount == 0:
+            conn.rollback()
+            return jsonify({"error": "Cart item not found."}), 404
+
+        conn.commit()
+        return jsonify({"message": "Cart quantity updated successfully."}), 200
+    except Exception as e:
+        conn.rollback()
         return jsonify({"error": str(e)}), 500
     finally:
         cursor.close()
@@ -1459,6 +1509,48 @@ def delete_produce(produce_id):
         cursor.execute("DELETE FROM produce WHERE produce_id = %s", (produce_id,))
         conn.commit()
         return jsonify({"message": "Produce deleted."}), 200
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.route('/api/farmer/update_stock', methods=['POST'])
+def update_stock():
+    data = request.json or {}
+    produce_id = data.get('produceId')
+    new_stock = data.get('newStock')
+
+    if produce_id is None or new_stock is None:
+        return jsonify({"error": "produceId and newStock are required."}), 400
+
+    try:
+        produce_id = int(produce_id)
+        new_stock = int(new_stock)
+        if new_stock < 0:
+            return jsonify({"error": "Stock cannot be negative."}), 400
+    except (TypeError, ValueError):
+        return jsonify({"error": "produceId and newStock must be valid numbers."}), 400
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE produce SET stock_quantity = %s WHERE produce_id = %s",
+            (new_stock, produce_id)
+        )
+
+        if cursor.rowcount == 0:
+            conn.rollback()
+            return jsonify({"error": "Produce item not found."}), 404
+
+        conn.commit()
+        return jsonify({"message": "Stock updated"}), 200
     except Exception as e:
         conn.rollback()
         return jsonify({"error": str(e)}), 500

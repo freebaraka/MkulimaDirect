@@ -206,7 +206,10 @@
                             <td>${p.date}</td>
                             <td>${p.name}</td>
                             <td>KSh ${p.price} / ${p.unit}</td>
-                            <td>${p.stock} ${p.unit}</td>
+                            <td>
+                                <input type="number" value="${p.stock}" min="0"
+                                       onchange="updateStock(${p.id}, this.value)">
+                            </td>
                             <td><button class="delete-btn" onclick="deleteProduce(${p.id})">Delete</button></td>
                         </tr>
                     `;
@@ -232,6 +235,15 @@
             } catch (e) {
                 console.error(e);
             }
+        }
+
+        async function updateStock(produceId, newStock) {
+            await fetch('http://localhost:5000/api/farmer/update_stock', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ produceId, newStock })
+            });
+            alert('Stock updated!');
         }
     </script>
 </body>

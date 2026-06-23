@@ -162,7 +162,10 @@
                         <tr id="cart-row-${item.cartId}">
                             <td style="font-weight: bold;">${item.name}</td>
                             <td>KSh ${item.price} / ${item.unit}</td>
-                            <td>${item.quantity}</td>
+                            <td>
+                                <input type="number" value="${item.quantity}" min="1"
+                                       onchange="updateQuantity(${item.produceId}, this.value)">
+                            </td>
                             <td style="font-weight: bold; color: #2E8B57;">KSh ${item.subtotal}</td>
                             <td><button class="btn-remove" onclick="removeItem(${item.cartId}, '${buyerName}')">Remove</button></td>
                         </tr>
@@ -202,6 +205,20 @@
                 alert("Server connection error.");
             }
         }
+
+        async function updateQuantity(produceId, newQuantity) {
+            const buyerName = localStorage.getItem('currentBuyer');
+            const response = await fetch('http://localhost:5000/api/cart/update', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ buyerName, produceId, newQuantity })
+            });
+
+            if (response.ok) {
+                location.reload();
+            }
+        }
+
         async function processCheckout(buyerName) {
             if (!confirm("Are you ready to place this order?")) return;
 

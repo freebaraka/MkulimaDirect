@@ -134,3 +134,5 @@ ALTER TABLE orders ALTER COLUMN buyer_phone SET NOT NULL;
 -- 3. If you need to change the foreign key constraint:
 ALTER TABLE orders DROP CONSTRAINT orders_buyer_id_fkey;
 ALTER TABLE orders ADD CONSTRAINT orders_buyer_id_fkey FOREIGN KEY (buyer_id) REFERENCES buyer(buyer_id);
+
+ALTER TABLE produce ADD COLUMN available_quantity INT DEFAULT 0;
