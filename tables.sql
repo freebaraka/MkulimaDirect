@@ -121,3 +121,16 @@ CREATE TABLE complaints (
     status VARCHAR(50) DEFAULT 'Pending',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- updating table orders because of the delivery address and phone number
+-- 1. Add the new columns
+ALTER TABLE orders ADD COLUMN delivery_address TEXT DEFAULT 'Not Provided';
+ALTER TABLE orders ADD COLUMN buyer_phone VARCHAR(20) DEFAULT '0000000000';
+
+-- 2. Make them NOT NULL (if you want to enforce data entry)
+ALTER TABLE orders ALTER COLUMN delivery_address SET NOT NULL;
+ALTER TABLE orders ALTER COLUMN buyer_phone SET NOT NULL;
+
+-- 3. If you need to change the foreign key constraint:
+ALTER TABLE orders DROP CONSTRAINT orders_buyer_id_fkey;
+ALTER TABLE orders ADD CONSTRAINT orders_buyer_id_fkey FOREIGN KEY (buyer_id) REFERENCES buyer(buyer_id);

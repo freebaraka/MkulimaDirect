@@ -111,6 +111,43 @@ def ensure_contact_columns_support_email():
 
 ensure_contact_columns_support_email()
 
+
+def ensure_checkout_contact_columns():
+    """Ensures checkout contact columns exist on order_details."""
+    conn = get_db_connection()
+    if not conn:
+        return
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_name = 'order_details' AND column_name = 'delivery_address'
+        """)
+        if not cursor.fetchone():
+            cursor.execute("ALTER TABLE order_details ADD COLUMN delivery_address TEXT")
+
+        cursor.execute("""
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_name = 'order_details' AND column_name = 'buyer_phone'
+        """)
+        if not cursor.fetchone():
+            cursor.execute("ALTER TABLE order_details ADD COLUMN buyer_phone VARCHAR(50)")
+
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"Warning: could not apply checkout contact migration: {e}")
+    finally:
+        cursor.close()
+        conn.close()
+
+
+ensure_checkout_contact_columns()
+
 # ----------------------------------------------------
 # ROUTE: SIGNUP REQUEST OTP 
 # ----------------------------------------------------
@@ -859,12 +896,13 @@ def remove_from_cart(cart_id):
 # ----------------------------------------------------
 @app.route('/api/checkout', methods=['POST'])
 def process_checkout():
-    data = request.json
+    data = request.json or {}
     buyer_name = data.get('buyerName')
     delivery_address = (data.get('deliveryAddress') or '').strip()
+    phone_number = (data.get('phoneNumber') or '').strip()
 
-    if not buyer_name or not delivery_address:
-        return jsonify({"error": "Buyer name and delivery address are required"}), 400
+    if not buyer_name or not delivery_address or not phone_number:
+        return jsonify({"error": "All checkout details are required"}), 400
 
     conn = get_db_connection()
     if not conn:
@@ -879,7 +917,7 @@ def process_checkout():
         if not buyer:
             return jsonify({"error": "Buyer not found."}), 404
         buyer_id = buyer[0]
-        buyer_phone = buyer[1]
+        buyer_email = buyer[1]
 
         # 2. Fetch all items currently in this buyer's cart
         cursor.execute("""
@@ -903,14 +941,22 @@ def process_checkout():
         """, (buyer_id, grand_total))
         order_id = cursor.fetchone()[0]
 
-        # 4. Move items from Cart to `order_details` and keep delivery address per line item
+        # 4. Move items from Cart to `order_details` and keep delivery address and phone per line item
         for item in cart_items:
             produce_id, quantity, price = item
             subtotal = quantity * price
             cursor.execute("""
-                INSERT INTO order_details (order_id, produce_id, quantity, price_at_time_of_order, subtotal, delivery_address)
-                VALUES (%s, %s, %s, %s, %s, %s)
-            """, (order_id, produce_id, quantity, price, subtotal, delivery_address))
+                INSERT INTO order_details (
+                    order_id,
+                    produce_id,
+                    quantity,
+                    price_at_time_of_order,
+                    subtotal,
+                    delivery_address,
+                    buyer_phone
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (order_id, produce_id, quantity, price, subtotal, delivery_address, phone_number))
             
             # (Optional but cool: Subtract the quantity from the farmer's stock here!)
             # cursor.execute("UPDATE produce SET stock_quantity = stock_quantity - %s WHERE produce_id = %s", (quantity, produce_id))
@@ -944,7 +990,7 @@ def process_checkout():
                 produce_name = farmer_data[1]
 
                 sms_message = (
-                    f"Mkulima Direct: New Order! {buyer_name} ({buyer_phone}) "
+                    f"Mkulima Direct: New Order! {buyer_name} ({phone_number}) "
                     f"has ordered {quantity} of {produce_name}. Deliver to: {delivery_address}."
                 )
 
@@ -1057,7 +1103,7 @@ def get_farmer_orders(farmer_name):
                 p.unit_type,
                 od.subtotal, 
                 b.full_name, 
-                b.email, 
+                COALESCE(od.buyer_phone, b.email), 
                 o.order_status
             FROM order_details od
             JOIN produce p ON od.produce_id = p.produce_id

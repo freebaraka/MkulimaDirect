@@ -144,7 +144,6 @@
 
         <div id="checkout-section" style="margin-top: 30px;">
             <h3>Complete your order</h3>
-            <input type="text" id="deliveryAddress" placeholder="Enter your delivery address..." required style="width: 100%; padding: 12px; border: 1px solid #cccccc; font-size: 1rem; box-sizing: border-box;">
             <button onclick="submitCheckout()" style="margin-top: 12px; padding: 10px 16px; background: var(--primary-color); color: #fff; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">Confirm Order</button>
         </div>
     </div>
@@ -244,13 +243,27 @@
         }
 
         async function submitCheckout() {
-            const address = document.getElementById('deliveryAddress').value;
+            // 1. Trigger a custom prompt to get details
+            const deliveryAddress = prompt('Please enter your delivery address:');
+            const phoneNumber = prompt('Please enter your phone number:');
+
+            // 2. Validate inputs
+            if (!deliveryAddress || !phoneNumber) {
+                alert('Delivery address and phone number are required to complete your order.');
+                return;
+            }
+
             const buyerName = localStorage.getItem('currentBuyer');
 
+            // 3. Send data to the backend
             const response = await fetch('http://localhost:5000/api/checkout', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ buyerName, deliveryAddress: address })
+                body: JSON.stringify({
+                    buyerName,
+                    deliveryAddress,
+                    phoneNumber
+                })
             });
 
             const result = await response.json();
