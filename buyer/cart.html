@@ -222,6 +222,14 @@
         async function processCheckout(buyerName) {
             if (!confirm("Are you ready to place this order?")) return;
 
+            const deliveryAddress = prompt('Please enter your delivery address:');
+            const phoneNumber = prompt('Please enter your phone number:');
+
+            if (!deliveryAddress || !phoneNumber) {
+                alert('Delivery address and phone number are required to complete your order.');
+                return;
+            }
+
             try {
                 // Change the button text to show it's working
                 const btn = document.querySelector('.btn-checkout');
@@ -231,17 +239,32 @@
                 const response = await fetch('http://localhost:5000/api/checkout', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ buyerName: buyerName })
+                    body: JSON.stringify({
+                        buyerName: buyerName,
+                        deliveryAddress,
+                        phoneNumber
+                    })
                 });
 
-                const result = await response.json();
+                let result = {};
+                try {
+                    result = await response.json();
+                } catch (_e) {
+                    result = {};
+                }
+
+                console.log('Server response:', result);
 
                 if (response.ok) {
-                    alert("🎉 " + result.message);
+                    if (result.message) {
+                        alert("🎉 " + result.message);
+                    } else {
+                        alert('Order processed, but received an unexpected response from the server.');
+                    }
                     // Refresh the cart (it should now be empty!)
                     fetchCart(buyerName);
                 } else {
-                    alert("Error: " + result.error);
+                    alert("Error: " + (result.error || result.message || 'Checkout failed.'));
                     btn.textContent = "Confirm & Pay";
                     btn.disabled = false;
                 }

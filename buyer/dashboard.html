@@ -136,11 +136,6 @@
         <div class="market-grid" id="produce-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 20px;">
             <div class="loading">Loading fresh produce from the database... ⏳</div>
         </div>
-
-        <div id="checkout-section" style="margin-top: 30px;">
-            <h3>Complete your order</h3>
-            <button onclick="submitCheckout()" style="margin-top: 12px; padding: 10px 16px; background: var(--primary-color); color: #fff; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">Confirm Order</button>
-        </div>
     </div>
 
     <script>
@@ -161,7 +156,32 @@
             }
 
             loadProduce();
+            if (buyerName) {
+                updateCartCount(buyerName);
+            }
         });
+
+        async function updateCartCount(buyerName) {
+            const cartCountEl = document.getElementById('cart-count');
+            if (!cartCountEl || !buyerName) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`http://localhost:5000/api/cart/${buyerName}`);
+                const data = await response.json();
+
+                if (!response.ok || !Array.isArray(data.items)) {
+                    cartCountEl.textContent = '0';
+                    return;
+                }
+
+                const totalItems = data.items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
+                cartCountEl.textContent = String(totalItems);
+            } catch (_error) {
+                cartCountEl.textContent = '0';
+            }
+        }
 
         async function loadProduce() {
             const container = document.getElementById('produce-container');
@@ -228,6 +248,7 @@
 
                 if (response.ok) {
                     alert("Success! " + result.message);
+                    updateCartCount(buyerName);
                 } else {
                     alert("Error: " + result.error);
                 }
@@ -249,33 +270,6 @@
             renderProduce(filtered);
         }
 
-        async function submitCheckout() {
-            // 1. Trigger a custom prompt to get details
-            const deliveryAddress = prompt('Please enter your delivery address:');
-            const phoneNumber = prompt('Please enter your phone number:');
-
-            // 2. Validate inputs
-            if (!deliveryAddress || !phoneNumber) {
-                alert('Delivery address and phone number are required to complete your order.');
-                return;
-            }
-
-            const buyerName = localStorage.getItem('currentBuyer');
-
-            // 3. Send data to the backend
-            const response = await fetch('http://localhost:5000/api/checkout', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    buyerName,
-                    deliveryAddress,
-                    phoneNumber
-                })
-            });
-
-            const result = await response.json();
-            alert(result.message);
-        }
     </script>
 
 </body>

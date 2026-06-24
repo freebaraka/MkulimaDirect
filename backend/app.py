@@ -5,6 +5,7 @@ from db import get_db_connection
 import re
 import random
 import smtplib
+from email.message import EmailMessage
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
@@ -35,6 +36,31 @@ def send_email(to_email, subject, body):
     except Exception as e:
         print(f"❌ Failed to send email: {str(e)}")
         return False
+
+
+def send_receipt_email(to_email, order_details, role):
+    msg = EmailMessage()
+    msg['Subject'] = f"Mkulima Direct: {role} Receipt for Order #{order_details['order_id']}"
+    msg['From'] = GMAIL_ADDRESS
+    msg['To'] = to_email
+
+    receipt_body = f"""
+--- MKULIMA DIRECT RECEIPT ---
+Order ID: {order_details['order_id']}
+Buyer: {order_details['buyer_name']}
+Farmer: {order_details['farmer_name']}
+Items: {order_details['item_name']} (Qty: {order_details['quantity']})
+Total Amount: KSh {order_details['total']}
+Delivery Address: {order_details['address']}
+-----------------------------
+Thank you for using Mkulima Direct!
+"""
+    msg.set_content(receipt_body)
+
+    # Reuse configured SMTP credentials for secure receipt delivery.
+    with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+        smtp.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
+        smtp.send_message(msg)
 
 # Temporary storage for OTPs (Using email as the key instead of phone)
 OTP_STORE = {}
@@ -1131,12 +1157,15 @@ def process_checkout():
         # Save all these steps to the database at the exact same time
         conn.commit()
 
+        receipt_email_failed = False
+
         # 7. Send SMS alerts to farmers for each produce item in this order
         for item in cart_items:
-            produce_id, quantity, _price = item
+            produce_id, quantity, price = item
+            subtotal = quantity * price
 
             cursor.execute("""
-                SELECT f.email, p.name
+                SELECT f.farmer_id, f.full_name, f.email, p.name
                 FROM farmer f
                 JOIN produce p ON f.farmer_id = p.farmer_id
                 WHERE p.produce_id = %s
@@ -1144,20 +1173,43 @@ def process_checkout():
             farmer_data = cursor.fetchone()
 
             if farmer_data:
-                farmer_phone = farmer_data[0]
-                produce_name = farmer_data[1]
+                _farmer_id = farmer_data[0]
+                farmer_name = farmer_data[1]
+                farmer_email = farmer_data[2]
+                produce_name = farmer_data[3]
+
+                receipt_info = {
+                    "order_id": order_id,
+                    "buyer_name": buyer_name,
+                    "farmer_name": farmer_name,
+                    "item_name": produce_name,
+                    "quantity": quantity,
+                    "total": subtotal,
+                    "address": delivery_address
+                }
+
+                try:
+                    send_receipt_email(buyer_email, receipt_info, "Buyer")
+                    send_receipt_email(farmer_email, receipt_info, "Farmer")
+                except Exception as e:
+                    # Receipt delivery should not fail checkout completion.
+                    receipt_email_failed = True
+                    print(f"Receipt email failed for order {order_id}: {e}")
 
                 sms_message = (
                     f"Mkulima Direct: New Order! {buyer_name} ({phone_number}) "
                     f"has ordered {quantity} of {produce_name}. Deliver to: {delivery_address}."
                 )
 
-                if send_email(farmer_phone, "Mkulima Direct New Order Alert", sms_message):
-                    print(f"Email successfully sent to {farmer_phone}")
+                if send_email(farmer_email, "Mkulima Direct New Order Alert", sms_message):
+                    print(f"Email successfully sent to {farmer_email}")
                 else:
                     print("Email Failed to send")
 
-        return jsonify({"message": f"Order #{order_id} placed successfully! Total: KSh {grand_total}"}), 201
+        if receipt_email_failed:
+            return jsonify({"message": f"Order #{order_id} placed successfully! Total: KSh {grand_total}. Receipt email failed to send."}), 201
+
+        return jsonify({"message": f"Order #{order_id} placed successfully! Total: KSh {grand_total}. Receipt sent successfully!"}), 201
 
     except Exception as e:
         # If any of the steps above fail, cancel ALL of them so the database doesn't break
