@@ -86,6 +86,11 @@
             color: #b94a48;
             border-color: #e2c3c3;
         }
+
+        @media print {
+            .sidebar { display: none; }
+            .main-content { padding: 0; }
+        }
     </style>
 </head>
 <body>
@@ -97,6 +102,7 @@
         <a href="#" onclick="showView('buyers')" id="nav-buyers">Manage Buyers</a>
         <a href="#" onclick="showView('orders')" id="nav-orders">Platform Orders</a>
         <a href="#" onclick="showView('payments')" id="nav-payments">Payment Records</a>
+        <a href="#" onclick="showView('reports')" id="nav-reports">Reports</a>
         <a href="#" onclick="showView('ratings')" id="nav-ratings">Farmer Ratings</a>
         <a href="#" onclick="showView('audit')" id="nav-audit">System Audit Logs</a>
         <a href="#" onclick="showView('complaints')" id="nav-complaints">View Complaints</a>
@@ -185,6 +191,20 @@
                 } catch (e) {
                     content.innerHTML = `<p style="color:red;">Error loading payment records.</p>`;
                 }
+                return;
+            }
+
+            if (view === 'reports') {
+                content.innerHTML = `
+                    <h1>REPORTS</h1>
+                    <div style="margin-bottom: 20px;">
+                        <button class="action-btn" onclick="fetchReport('performance')">Generate Report</button>
+                        <button class="action-btn" onclick="window.print()">Print Report</button>
+                    </div>
+                    <div id="report-output" style="background: #f9f9f9; padding: 20px; border: 1px solid #ccc;">
+                        <p>Generate a report to view daily order volume and revenue trends.</p>
+                    </div>
+                `;
                 return;
             }
 
@@ -434,6 +454,47 @@
                 if (feedContainer) {
                     feedContainer.innerHTML = '<p style="color: red;">Failed to fetch dashboard metrics.</p>';
                 }
+            }
+        }
+
+        async function fetchReport(type) {
+            const output = document.getElementById('report-output');
+            if (!output) {
+                return;
+            }
+
+            output.innerHTML = '<p>Generating report...</p>';
+
+            try {
+                const response = await fetch(`http://localhost:5000/api/admin/report/${type}`);
+                const data = await response.json();
+
+                if (!response.ok) {
+                    output.innerHTML = `<p style="color:red;">${data.error || 'Failed to generate report.'}</p>`;
+                    return;
+                }
+
+                if (Array.isArray(data) && data.length > 0) {
+                    let html = '<table id="data-table" border="1" width="100%" style="border-collapse: collapse; margin-top: 10px;">';
+                    html += '<tr><th>Day</th><th>Total Orders</th><th>Daily Revenue (KSh)</th></tr>';
+                    data.forEach(row => {
+                        html += `<tr><td>${row.day ?? ''}</td><td>${row.totalOrders ?? ''}</td><td>${row.dailyRevenue ?? ''}</td></tr>`;
+                    });
+                    html += '</table>';
+                    output.innerHTML = html;
+                    return;
+                }
+
+                if (data && typeof data === 'object') {
+                    output.innerHTML = Object.entries(data)
+                        .map(([key, value]) => `<p><strong>${key}:</strong> ${value}</p>`)
+                        .join('');
+                    return;
+                }
+
+                output.innerHTML = '<p>No report data available.</p>';
+            } catch (e) {
+                output.innerHTML = '<p style="color:red;">Error loading report.</p>';
             }
         }
     </script>

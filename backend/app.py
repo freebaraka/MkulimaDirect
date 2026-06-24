@@ -1838,6 +1838,45 @@ def get_payments():
         conn.close()
 
 
+@app.route('/api/admin/report/<report_type>', methods=['GET'])
+def get_admin_report(report_type):
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+        normalized = (report_type or '').strip().lower()
+
+        if normalized not in {'performance', 'revenue', 'activity'}:
+            return jsonify({"error": "Unknown report type."}), 400
+
+        # Daily performance view: total orders and total revenue per day.
+        cursor.execute("""
+            SELECT DATE(order_date) AS day,
+                   COUNT(order_id) AS total_orders,
+                   COALESCE(SUM(total_amount), 0) AS daily_revenue
+            FROM orders
+            GROUP BY DATE(order_date)
+            ORDER BY day DESC
+        """)
+
+        report_rows = [
+            {
+                "day": r[0].strftime("%Y-%m-%d") if r[0] else "Unknown",
+                "totalOrders": int(r[1]) if r[1] is not None else 0,
+                "dailyRevenue": str(r[2])
+            }
+            for r in cursor.fetchall()
+        ]
+        return jsonify(report_rows), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
 @app.route('/api/admin/audit', methods=['GET'])
 def get_audit_logs():
     conn = get_db_connection()
