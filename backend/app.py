@@ -1806,6 +1806,38 @@ def get_ratings():
         conn.close()
 
 
+@app.route('/api/admin/payments', methods=['GET'])
+def get_payments():
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT o.order_id, b.full_name, o.total_amount, o.order_date, o.order_status
+            FROM orders o
+            JOIN buyer b ON o.buyer_id = b.buyer_id
+            ORDER BY o.order_date DESC
+        """)
+        payments = [
+            {
+                "orderId": r[0],
+                "buyerName": r[1],
+                "amount": str(r[2]),
+                "date": r[3].strftime("%Y-%m-%d") if r[3] else "Unknown",
+                "status": r[4]
+            }
+            for r in cursor.fetchall()
+        ]
+        return jsonify(payments)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
 @app.route('/api/admin/audit', methods=['GET'])
 def get_audit_logs():
     conn = get_db_connection()

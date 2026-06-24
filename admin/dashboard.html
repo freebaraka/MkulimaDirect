@@ -96,6 +96,7 @@
         <a href="#" onclick="showView('farmers')" id="nav-farmers">Manage Farmers</a>
         <a href="#" onclick="showView('buyers')" id="nav-buyers">Manage Buyers</a>
         <a href="#" onclick="showView('orders')" id="nav-orders">Platform Orders</a>
+        <a href="#" onclick="showView('payments')" id="nav-payments">Payment Records</a>
         <a href="#" onclick="showView('ratings')" id="nav-ratings">Farmer Ratings</a>
         <a href="#" onclick="showView('audit')" id="nav-audit">System Audit Logs</a>
         <a href="#" onclick="showView('complaints')" id="nav-complaints">View Complaints</a>
@@ -158,6 +159,31 @@
                     table.innerHTML = html;
                 } catch (e) {
                     content.innerHTML += '<p style="color:red;">Error loading orders data.</p>';
+                }
+                return;
+            }
+
+            if (view === 'payments') {
+                content.innerHTML = `<h1>PAYMENT RECORDS</h1><table id="data-table" border="1" width="100%" style="border-collapse: collapse; margin-top: 20px;"></table>`;
+                const table = document.getElementById('data-table');
+
+                try {
+                    const response = await fetch('http://localhost:5000/api/admin/payments');
+                    const data = await response.json();
+
+                    let html = '<tr><th>Order ID</th><th>Buyer</th><th>Amount (KSh)</th><th>Date</th><th>Status</th></tr>';
+                    data.forEach(item => {
+                        html += `<tr>
+                            <td>#${item.orderId}</td>
+                            <td>${item.buyerName}</td>
+                            <td>${item.amount}</td>
+                            <td>${item.date}</td>
+                            <td><span style="color: ${item.status === 'Completed' ? 'green' : 'orange'}; font-weight:bold;">${item.status}</span></td>
+                        </tr>`;
+                    });
+                    table.innerHTML = html;
+                } catch (e) {
+                    content.innerHTML = `<p style="color:red;">Error loading payment records.</p>`;
                 }
                 return;
             }
