@@ -1,19 +1,24 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
-from db import get_db_connection  
+from db import get_db_connection
 import re
 import random
+import os
 import smtplib
 from email.message import EmailMessage
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from dotenv import load_dotenv
+from mpesa import initiate_stk_push, parse_callback, validate_mpesa_config
+
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 # ------------
 # EMAIL SETUP 
 # ------------
-GMAIL_ADDRESS = "sirwoossah@gmail.com" 
-GMAIL_APP_PASSWORD = "psbf qfry urkm hzud"
+GMAIL_ADDRESS      = os.getenv("GMAIL_ADDRESS", "")
+GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "")
 
 def send_email(to_email, subject, body):
     """Sends an email using Gmail's secure SMTP server"""
@@ -1908,6 +1913,226 @@ def get_audit_logs():
     finally:
         cursor.close()
         conn.close()
+
+# ─────────────────────────────────────────────────────
+# MPESA ROUTES
+# ─────────────────────────────────────────────────────
+
+@app.route('/api/mpesa/pay', methods=['POST'])
+def mpesa_pay():
+    """
+    Step 1: Buyer initiates payment.
+    Expects JSON: { buyerName, phoneNumber, deliveryAddress }
+    This creates the order, then fires an STK Push to the buyer's phone.
+    The order starts with status 'Pending' and payment_status 'Pending'.
+    """
+    data = request.json or {}
+    buyer_name = (data.get('buyerName') or '').strip()
+    raw_phone  = (data.get('phoneNumber') or '').strip()
+    delivery_address = (data.get('deliveryAddress') or '').strip()
+
+    if not buyer_name or not raw_phone or not delivery_address:
+        return jsonify({"error": "buyerName, phoneNumber, and deliveryAddress are required."}), 400
+
+    config_errors = validate_mpesa_config()
+    if config_errors:
+        return jsonify({
+            "error": "M-Pesa configuration is invalid.",
+            "detail": config_errors
+        }), 500
+
+    # Normalise phone to 254XXXXXXXXX format
+    phone = raw_phone.lstrip('+').lstrip('0')
+    if not phone.startswith('254'):
+        phone = '254' + phone
+    if len(phone) != 12 or not phone.isdigit():
+        return jsonify({"error": "Enter a valid Kenyan phone number (e.g. 0712345678)."}), 400
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+
+        # 1. Verify buyer exists
+        cursor.execute("SELECT buyer_id, email FROM buyer WHERE full_name = %s", (buyer_name,))
+        buyer = cursor.fetchone()
+        if not buyer:
+            return jsonify({"error": "Buyer not found."}), 404
+        buyer_id, buyer_email = buyer
+
+        # 2. Get cart items
+        cursor.execute("""
+            SELECT c.produce_id, c.quantity, p.price_per_unit
+            FROM cart c
+            JOIN produce p ON c.produce_id = p.produce_id
+            WHERE c.buyer_id = %s
+        """, (buyer_id,))
+        cart_items = cursor.fetchall()
+
+        if not cart_items:
+            return jsonify({"error": "Your cart is empty."}), 400
+
+        grand_total = sum(item[1] * item[2] for item in cart_items)
+
+        # 3. Create the order record (status Pending — confirmed after payment callback)
+        cursor.execute("""
+            INSERT INTO orders (buyer_id, order_status, total_amount, delivery_address, buyer_phone)
+            VALUES (%s, 'Pending', %s, %s, %s) RETURNING order_id
+        """, (buyer_id, grand_total, delivery_address, raw_phone))
+        order_id = cursor.fetchone()[0]
+
+        # 4. Write order details
+        for produce_id, quantity, price in cart_items:
+            subtotal = quantity * price
+            cursor.execute("""
+                INSERT INTO order_details
+                    (order_id, produce_id, quantity, price_at_time_of_order, subtotal, delivery_address, buyer_phone)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (order_id, produce_id, quantity, price, subtotal, delivery_address, raw_phone))
+
+        # 5. Create a Pending payment record; store checkout_request_id after STK response
+        cursor.execute("""
+            INSERT INTO payments (order_id, amount, payment_method, payment_status)
+            VALUES (%s, %s, 'M-Pesa STK Push', 'Pending') RETURNING payment_id
+        """, (order_id, grand_total))
+        payment_id = cursor.fetchone()[0]
+
+        # 6. Clear the cart
+        cursor.execute("DELETE FROM cart WHERE buyer_id = %s", (buyer_id,))
+
+        conn.commit()
+
+        # 7. Fire STK Push (after DB commit so order exists even if STK fails)
+        try:
+            stk_response = initiate_stk_push(
+                phone=phone,
+                amount=int(grand_total),
+                order_id=order_id
+            )
+            checkout_request_id = stk_response.get("CheckoutRequestID", "")
+            merchant_request_id = stk_response.get("MerchantRequestID", "")
+
+            # Store the CheckoutRequestID so callback can match it
+            cursor2 = conn.cursor()
+            cursor2.execute("""
+                UPDATE payments
+                SET transaction_reference = %s
+                WHERE payment_id = %s
+            """, (checkout_request_id, payment_id))
+            conn.commit()
+            cursor2.close()
+
+            return jsonify({
+                "message": f"STK Push sent to {raw_phone}. Enter your M-Pesa PIN to complete payment.",
+                "orderId": order_id,
+                "checkoutRequestId": checkout_request_id,
+                "merchantRequestId": merchant_request_id,
+                "amount": float(grand_total)
+            }), 200
+
+        except Exception as stk_error:
+            # STK failed — order still exists, buyer can retry payment
+            print(f"STK Push failed for order {order_id}: {stk_error}")
+            return jsonify({
+                "error": "Order created but M-Pesa STK Push failed. Please try again.",
+                "orderId": order_id,
+                "detail": str(stk_error)
+            }), 502
+
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.route('/api/mpesa/callback', methods=['POST'])
+def mpesa_callback():
+    """
+    Step 2: Safaricom posts the payment result here.
+    This endpoint MUST be publicly reachable over HTTPS.
+    It updates the payment status and order status accordingly.
+    """
+    callback_data = request.json or {}
+    result = parse_callback(callback_data)
+
+    conn = get_db_connection()
+    if not conn:
+        # Always return 200 to Safaricom even on internal errors
+        print("Callback received but DB connection failed.")
+        return jsonify({"ResultCode": 0, "ResultDesc": "Accepted"}), 200
+
+    try:
+        cursor = conn.cursor()
+
+        if result["success"]:
+            # Payment confirmed — update payment and order
+            cursor.execute("""
+                UPDATE payments
+                SET payment_status      = 'Completed',
+                    transaction_reference = %s
+                WHERE transaction_reference = %s
+                RETURNING order_id
+            """, (result["mpesa_code"], result["checkout_id"]))
+
+            row = cursor.fetchone()
+            if row:
+                order_id = row[0]
+                cursor.execute("""
+                    UPDATE orders SET order_status = 'Confirmed' WHERE order_id = %s
+                """, (order_id,))
+                print(f"Payment confirmed for order {order_id}. Receipt: {result['mpesa_code']}")
+        else:
+            # Payment failed or cancelled — mark payment as Failed
+            cursor.execute("""
+                UPDATE payments
+                SET payment_status = 'Failed'
+                WHERE transaction_reference = %s
+            """, (result["checkout_id"],))
+            print(f"Payment failed/cancelled. Code: {result['result_code']} — {result['result_desc']}")
+
+        conn.commit()
+
+    except Exception as e:
+        conn.rollback()
+        print(f"Callback processing error: {e}")
+    finally:
+        cursor.close()
+        conn.close()
+
+    # Safaricom requires a 200 response with this exact body
+    return jsonify({"ResultCode": 0, "ResultDesc": "Accepted"}), 200
+
+
+@app.route('/api/mpesa/status/<int:order_id>', methods=['GET'])
+def mpesa_payment_status(order_id):
+    """
+    Frontend polls this endpoint to check if payment has been confirmed.
+    Returns: { "status": "Pending" | "Completed" | "Failed" }
+    """
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT payment_status FROM payments WHERE order_id = %s
+            ORDER BY payment_date DESC LIMIT 1
+        """, (order_id,))
+        row = cursor.fetchone()
+        if not row:
+            return jsonify({"error": "Payment record not found."}), 404
+        return jsonify({"status": row[0]}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
 
 # ----------------------------------------------------
 # START THE SERVER
