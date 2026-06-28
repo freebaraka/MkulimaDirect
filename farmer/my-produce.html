@@ -161,9 +161,22 @@
     </div>
 
     <script>
+        function getAuthHeaders(includeJson = false) {
+            const token = localStorage.getItem('sessionToken');
+            const headers = {};
+            if (includeJson) {
+                headers['Content-Type'] = 'application/json';
+            }
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+            return headers;
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             const farmerName = localStorage.getItem('currentFarmer');
-            if (!farmerName) {
+            const token = localStorage.getItem('sessionToken');
+            if (!farmerName || !token) {
                 alert('Please log in from the Dashboard first.');
                 window.location.href = 'dashboard.html';
                 return;
@@ -173,7 +186,9 @@
 
         async function fetchInventory(farmerName) {
             try {
-                const response = await fetch(`http://localhost:5000/api/farmer/produce/${farmerName}`);
+                const response = await fetch(`http://localhost:5000/api/farmer/produce/${farmerName}`, {
+                    headers: getAuthHeaders()
+                });
                 const produce = await response.json();
 
                 if (!response.ok) {
@@ -230,7 +245,10 @@
         async function deleteProduce(id) {
             if (!confirm('Are you sure you want to delete this listing?')) return;
             try {
-                await fetch(`http://localhost:5000/api/produce/${id}`, { method: 'DELETE' });
+                await fetch(`http://localhost:5000/api/produce/${id}`, {
+                    method: 'DELETE',
+                    headers: getAuthHeaders()
+                });
                 fetchInventory(localStorage.getItem('currentFarmer'));
             } catch (e) {
                 console.error(e);
@@ -240,7 +258,7 @@
         async function updateStock(produceId, newStock) {
             await fetch('http://localhost:5000/api/farmer/update_stock', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: getAuthHeaders(true),
                 body: JSON.stringify({ produceId, newStock })
             });
             alert('Stock updated!');

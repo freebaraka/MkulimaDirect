@@ -97,9 +97,9 @@ CREATE TABLE payments (
 -- Expanding Display
 \x
 
---  To be able to store quantities depending on the type......
+-- Keep stock numeric for safe arithmetic during checkout and inventory updates.
 ALTER TABLE produce 
-ALTER COLUMN stock_quantity TYPE VARCHAR(100);
+ALTER COLUMN stock_quantity TYPE NUMERIC(12, 2) USING stock_quantity::NUMERIC;
 
 CREATE TABLE farmer_ratings (
     rating_id SERIAL PRIMARY KEY,

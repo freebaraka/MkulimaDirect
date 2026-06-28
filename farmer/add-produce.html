@@ -129,7 +129,7 @@
             </div>
 
             <label>Quantity Available</label>
-            <input type="text" id="quantity" placeholder="e.g. 50 Kgs or 'Many'" required>
+            <input type="number" id="quantity" min="0.01" step="0.01" placeholder="e.g. 50" required>
 
             <label>Short Description</label>
             <textarea id="description" rows="3" placeholder="Describe the quality, freshness, etc."></textarea>
@@ -147,6 +147,32 @@
     <script>
         const produceForm = document.getElementById('produceForm');
         const statusMessage = document.getElementById('status-message');
+
+        function getAuthHeaders(includeJson = false) {
+            const token = localStorage.getItem('sessionToken');
+            const headers = {};
+            if (includeJson) {
+                headers['Content-Type'] = 'application/json';
+            }
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+            return headers;
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const farmerName = localStorage.getItem('currentFarmer') || '';
+            const token = localStorage.getItem('sessionToken');
+            if (!token || !farmerName) {
+                alert('Please log in to add produce.');
+                window.location.href = '../auth/login.html';
+                return;
+            }
+            const farmerNameInput = document.getElementById('farmerName');
+            if (farmerNameInput) {
+                farmerNameInput.value = farmerName;
+            }
+        });
 
         produceForm.addEventListener('submit', async function(event) {
             event.preventDefault(); 
@@ -168,7 +194,7 @@
             try {
                 const response = await fetch('http://localhost:5000/api/produce', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: getAuthHeaders(true),
                     body: JSON.stringify(produceData)
                 });
 

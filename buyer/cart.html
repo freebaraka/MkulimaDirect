@@ -112,10 +112,23 @@
     </div>
 
     <script>
+        function getAuthHeaders(includeJson = false) {
+            const token = localStorage.getItem('sessionToken');
+            const headers = {};
+            if (includeJson) {
+                headers['Content-Type'] = 'application/json';
+            }
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+            return headers;
+        }
+
         document.addEventListener('DOMContentLoaded', async () => {
             const buyerName = localStorage.getItem('currentBuyer');
+            const token = localStorage.getItem('sessionToken');
 
-            if (!buyerName) {
+            if (!buyerName || !token) {
                 alert('You must log in to access your cart.');
                 window.location.href = '../index.html';
                 return;
@@ -129,7 +142,9 @@
             const container = document.getElementById('cart-container');
 
             try {
-                const response = await fetch(`http://localhost:5000/api/cart/${buyerName}`);
+                const response = await fetch(`http://localhost:5000/api/cart/${buyerName}`, {
+                    headers: getAuthHeaders()
+                });
                 const data = await response.json();
 
                 if (!response.ok) {
@@ -193,7 +208,10 @@
             if (!confirm("Remove this item from your cart?")) return;
 
             try {
-                const response = await fetch(`http://localhost:5000/api/cart/${cartId}`, { method: 'DELETE' });
+                const response = await fetch(`http://localhost:5000/api/cart/${cartId}`, {
+                    method: 'DELETE',
+                    headers: getAuthHeaders()
+                });
                 
                 if (response.ok) {
                     // Refresh the cart to update the grand total
@@ -210,7 +228,7 @@
             const buyerName = localStorage.getItem('currentBuyer');
             const response = await fetch('http://localhost:5000/api/cart/update', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: getAuthHeaders(true),
                 body: JSON.stringify({ buyerName, produceId, newQuantity })
             });
 
@@ -238,7 +256,7 @@
 
                 const response = await fetch('http://localhost:5000/api/checkout', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: getAuthHeaders(true),
                     body: JSON.stringify({
                         buyerName: buyerName,
                         deliveryAddress,
@@ -256,10 +274,37 @@
                 console.log('Server response:', result);
 
                 if (response.ok) {
+                    let paymentNotice = '';
+
+                    if (result.orderId) {
+                        try {
+                            const mpesaResponse = await fetch('http://localhost:5000/api/mpesa-pay', {
+                                method: 'POST',
+                                headers: getAuthHeaders(true),
+                                body: JSON.stringify({
+                                    orderId: result.orderId,
+                                    phoneNumber
+                                })
+                            });
+
+                            const mpesaResult = await mpesaResponse.json().catch(() => ({}));
+                            if (mpesaResponse.ok) {
+                                paymentNotice = `\n\nM-Pesa Prompt Sent. CheckoutRequestID: ${mpesaResult.checkoutRequestID || 'N/A'}`;
+                                if (mpesaResult.customerMessage) {
+                                    paymentNotice += `\n${mpesaResult.customerMessage}`;
+                                }
+                            } else {
+                                paymentNotice = `\n\nOrder placed, but M-Pesa prompt failed: ${mpesaResult.error || 'Unknown error.'}`;
+                            }
+                        } catch (_mpesaError) {
+                            paymentNotice = '\n\nOrder placed, but could not reach M-Pesa payment endpoint.';
+                        }
+                    }
+
                     if (result.message) {
-                        alert("🎉 " + result.message);
+                        alert("🎉 " + result.message + paymentNotice);
                     } else {
-                        alert('Order processed, but received an unexpected response from the server.');
+                        alert('Order processed, but received an unexpected response from the server.' + paymentNotice);
                     }
                     // Refresh the cart (it should now be empty!)
                     fetchCart(buyerName);

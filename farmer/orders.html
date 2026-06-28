@@ -162,9 +162,22 @@
     </div>
 
     <script>
+        function getAuthHeaders(includeJson = false) {
+            const token = localStorage.getItem('sessionToken');
+            const headers = {};
+            if (includeJson) {
+                headers['Content-Type'] = 'application/json';
+            }
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+            return headers;
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             const farmerName = localStorage.getItem('currentFarmer');
-            if (!farmerName) {
+            const token = localStorage.getItem('sessionToken');
+            if (!farmerName || !token) {
                 window.location.href = 'dashboard.html';
                 return;
             }
@@ -173,7 +186,9 @@
 
         async function fetchFarmerOrders(farmerName) {
             try {
-                const response = await fetch(`http://localhost:5000/api/farmer/orders/${farmerName}`);
+                const response = await fetch(`http://localhost:5000/api/farmer/orders/${farmerName}`, {
+                    headers: getAuthHeaders()
+                });
                 const orders = await response.json();
 
                 if (!response.ok) {
@@ -245,13 +260,12 @@
             console.log('Updating order', orderId, 'to', newStatus);
 
             try {
-                const response = await fetch('http://localhost:5000/api/farmer/update_order', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                const farmerName = localStorage.getItem('currentFarmer');
+                const response = await fetch(`http://localhost:5000/api/farmer/orders/${encodeURIComponent(farmerName)}/${orderId}/status`, {
+                    method: 'PUT',
+                    headers: getAuthHeaders(true),
                     body: JSON.stringify({
-                        orderId: orderId,
-                        status: newStatus,
-                        farmerName: localStorage.getItem('currentFarmer')
+                        status: String(newStatus || '').toLowerCase()
                     })
                 });
 

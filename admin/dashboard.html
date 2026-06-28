@@ -113,7 +113,41 @@
     </div>
 
     <script>
+        function getAdminHeaders(extraHeaders = {}) {
+            const adminKey = localStorage.getItem('adminApiKey') || '';
+            return {
+                ...extraHeaders,
+                'X-Admin-Key': adminKey
+            };
+        }
+
+        async function adminFetch(url, options = {}) {
+            const merged = {
+                ...options,
+                headers: getAdminHeaders(options.headers || {})
+            };
+            return fetch(url, merged);
+        }
+
+        function ensureAdminApiKey() {
+            const existing = localStorage.getItem('adminApiKey');
+            if (existing) {
+                return true;
+            }
+            const entered = prompt('Enter Admin API Key to access admin endpoints:');
+            if (!entered || !entered.trim()) {
+                alert('Admin API key is required.');
+                window.location.href = '../index.html';
+                return false;
+            }
+            localStorage.setItem('adminApiKey', entered.trim());
+            return true;
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
+            if (!ensureAdminApiKey()) {
+                return;
+            }
             showView('overview');
         });
 
@@ -150,7 +184,7 @@
                     const table = document.getElementById('data-table');
                     
                     // Fetch data from your new /api/orders route
-                    const response = await fetch('http://localhost:5000/api/orders');
+                    const response = await adminFetch('http://localhost:5000/api/orders');
                     const data = await response.json();
 
                     // CUSTOM HEADERS for Orders
@@ -174,7 +208,7 @@
                 const table = document.getElementById('data-table');
 
                 try {
-                    const response = await fetch('http://localhost:5000/api/admin/payments');
+                    const response = await adminFetch('http://localhost:5000/api/admin/payments');
                     const data = await response.json();
 
                     let html = '<tr><th>Order ID</th><th>Buyer</th><th>Amount (KSh)</th><th>Date</th><th>Status</th></tr>';
@@ -213,7 +247,7 @@
                 const table = document.getElementById('data-table');
 
                 try {
-                    const response = await fetch('http://localhost:5000/api/admin/complaints');
+                    const response = await adminFetch('http://localhost:5000/api/admin/complaints');
                     const data = await response.json();
 
                     let html = '<tr><th>User</th><th>Role</th><th>Subject</th><th>Description</th><th>Status</th></tr>';
@@ -238,7 +272,7 @@
                 const table = document.getElementById('data-table');
 
                 try {
-                    const response = await fetch('http://localhost:5000/api/admin/ratings');
+                    const response = await adminFetch('http://localhost:5000/api/admin/ratings');
                     const data = await response.json();
 
                     // Header for Ratings Table
@@ -264,7 +298,7 @@
                 const table = document.getElementById('data-table');
 
                 try {
-                    const response = await fetch('http://localhost:5000/api/admin/audit');
+                    const response = await adminFetch('http://localhost:5000/api/admin/audit');
                     const logs = await response.json();
 
                     let html = '<tr><th>User</th><th>Role</th><th>Login Time</th><th>Logout Time</th><th>Duration (min)</th></tr>';
@@ -290,7 +324,7 @@
             const table = document.getElementById('data-table');
             try {
                 let endpoint = view === 'farmers' ? '/api/farmers' : '/api/buyers';
-                const response = await fetch(`http://localhost:5000${endpoint}`);
+                const response = await adminFetch(`http://localhost:5000${endpoint}`);
                 const data = await response.json();
 
                 // 3. Render Table
@@ -372,7 +406,7 @@
 
             try {
                 const role = view === 'farmers' ? 'farmer' : 'buyer';
-                const response = await fetch(`http://localhost:5000/api/admin/users/${role}/${userId}`, {
+                const response = await adminFetch(`http://localhost:5000/api/admin/users/${role}/${userId}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -403,7 +437,7 @@
 
             try {
                 const role = view === 'farmers' ? 'farmer' : 'buyer';
-                const response = await fetch(`http://localhost:5000/api/admin/users/${role}/${userId}`, {
+                const response = await adminFetch(`http://localhost:5000/api/admin/users/${role}/${userId}`, {
                     method: 'DELETE'
                 });
 
@@ -422,7 +456,7 @@
 
         async function fetchDashboardData() {
             try {
-                const response = await fetch('http://localhost:5000/api/admin/stats');
+                const response = await adminFetch('http://localhost:5000/api/admin/stats');
                 const data = await response.json();
                 if (response.ok) {
                     document.getElementById('admin-users').textContent = data.totalUsers;
@@ -466,7 +500,7 @@
             output.innerHTML = '<p>Generating report...</p>';
 
             try {
-                const response = await fetch(`http://localhost:5000/api/admin/report/${type}`);
+                const response = await adminFetch(`http://localhost:5000/api/admin/report/${type}`);
                 const data = await response.json();
 
                 if (!response.ok) {

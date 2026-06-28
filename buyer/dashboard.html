@@ -142,14 +142,27 @@
         // Keep a master list so search can filter and re-render accurately.
         let allProduce = [];
 
+        function getAuthHeaders(includeJson = false) {
+            const token = localStorage.getItem('sessionToken');
+            const headers = {};
+            if (includeJson) {
+                headers['Content-Type'] = 'application/json';
+            }
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+            return headers;
+        }
+
         // Put this at the very top of your <script> tag
         document.addEventListener('DOMContentLoaded', () => {
             // Check if the user is logged in
             const buyerName = localStorage.getItem('currentBuyer');
             const farmerName = localStorage.getItem('currentFarmer');
+            const token = localStorage.getItem('sessionToken');
 
             // If neither exists, they haven't logged in
-            if (!buyerName && !farmerName) {
+            if ((!buyerName && !farmerName) || !token) {
                 alert('You must log in to access the dashboard.');
                 window.location.href = '../index.html';
                 return;
@@ -168,7 +181,9 @@
             }
 
             try {
-                const response = await fetch(`http://localhost:5000/api/cart/${buyerName}`);
+                const response = await fetch(`http://localhost:5000/api/cart/${buyerName}`, {
+                    headers: getAuthHeaders()
+                });
                 const data = await response.json();
 
                 if (!response.ok || !Array.isArray(data.items)) {
@@ -237,7 +252,7 @@
             try {
                 const response = await fetch('http://localhost:5000/api/cart', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: getAuthHeaders(true),
                     body: JSON.stringify({
                         buyerName: buyerName,
                         produceId: produceId

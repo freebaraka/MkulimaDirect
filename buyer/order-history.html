@@ -91,10 +91,23 @@
     </div>
 
     <script>
+        function getAuthHeaders(includeJson = false) {
+            const token = localStorage.getItem('sessionToken');
+            const headers = {};
+            if (includeJson) {
+                headers['Content-Type'] = 'application/json';
+            }
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+            return headers;
+        }
+
         document.addEventListener('DOMContentLoaded', async () => {
             const buyerName = localStorage.getItem('currentBuyer');
+            const token = localStorage.getItem('sessionToken');
 
-            if (!buyerName) {
+            if (!buyerName || !token) {
                 alert('You must log in to access your order history.');
                 window.location.href = '../index.html';
                 return;
@@ -108,7 +121,9 @@
             const container = document.getElementById('orders-container');
 
             try {
-                const response = await fetch(`http://localhost:5000/api/buyer/orders/${buyerName}`);
+                const response = await fetch(`http://localhost:5000/api/buyer/orders/${buyerName}`, {
+                    headers: getAuthHeaders()
+                });
                 const orders = await response.json();
 
                 if (!response.ok) {
@@ -154,7 +169,7 @@
                             </td>
                             <td><span class="status-badge ${statusClass}">${order.status}</span></td>
                             <td>
-                                <button onclick="submitRating('${buyerName}', '${order.farmerName}')" style="background: #2E8B57; color: #fff; border: none; padding: 8px 12px; border-radius: 5px; cursor: pointer;">
+                                <button onclick="submitRating('${buyerName}', '${order.farmerName}', '${order.farmerPhone}')" style="background: #2E8B57; color: #fff; border: none; padding: 8px 12px; border-radius: 5px; cursor: pointer;">
                                     Rate Farmer
                                 </button>
                             </td>
@@ -175,7 +190,7 @@
             }
         }
 
-        async function submitRating(buyerName, farmerName) {
+        async function submitRating(buyerName, farmerName, farmerEmail) {
             const rating = prompt(`Rate ${farmerName} from 1 to 5 (1 = Poor, 5 = Excellent):`);
 
             if (!rating) return; // User cancelled
@@ -188,10 +203,11 @@
             try {
                 const response = await fetch('http://localhost:5000/api/rate', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: getAuthHeaders(true),
                     body: JSON.stringify({
                         buyerName: buyerName,
                         farmerName: farmerName,
+                        farmerEmail: farmerEmail,
                         rating: rating
                     })
                 });

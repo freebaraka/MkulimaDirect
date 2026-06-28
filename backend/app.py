@@ -2,18 +2,57 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 from db import get_db_connection  
+import json
+import os
+import hmac
+import base64
 import re
 import random
+import secrets
+import time
 import smtplib
-from email.message import EmailMessage
+from datetime import datetime
+from urllib import request as urlrequest
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+
+
+def load_local_env_file():
+    """Loads key=value pairs from project-root/.env then backend/.env if not already set."""
+    backend_dir = os.path.dirname(__file__)
+    project_root = os.path.dirname(backend_dir)
+    candidate_paths = [
+        os.path.join(project_root, '.env'),
+        os.path.join(backend_dir, '.env')
+    ]
+
+    for env_path in candidate_paths:
+        if not os.path.exists(env_path):
+            continue
+
+        try:
+            with open(env_path, 'r', encoding='utf-8') as env_file:
+                for raw_line in env_file:
+                    line = raw_line.strip()
+                    if not line or line.startswith('#') or '=' not in line:
+                        continue
+
+                    key, value = line.split('=', 1)
+                    key = key.strip()
+                    value = value.strip().strip('"').strip("'")
+                    if key and key not in os.environ:
+                        os.environ[key] = value
+        except Exception as e:
+            print(f"Warning: could not load .env file {env_path}: {e}")
+
+
+load_local_env_file()
 
 # ------------
 # EMAIL SETUP 
 # ------------
-GMAIL_ADDRESS = "sirwoossah@gmail.com" 
-GMAIL_APP_PASSWORD = "psbf qfry urkm hzud"
+GMAIL_ADDRESS = (os.environ.get('GMAIL_ADDRESS') or 'sirwoossah@gmail.com').strip()
+GMAIL_APP_PASSWORD = (os.environ.get('GMAIL_APP_PASSWORD') or 'psbf qfry urkm hzud').strip()
 
 def send_email(to_email, subject, body):
     """Sends an email using Gmail's secure SMTP server"""
@@ -39,11 +78,6 @@ def send_email(to_email, subject, body):
 
 
 def send_receipt_email(to_email, order_details, role):
-    msg = EmailMessage()
-    msg['Subject'] = f"Mkulima Direct: {role} Receipt for Order #{order_details['order_id']}"
-    msg['From'] = GMAIL_ADDRESS
-    msg['To'] = to_email
-
     receipt_body = f"""
 --- MKULIMA DIRECT RECEIPT ---
 Order ID: {order_details['order_id']}
@@ -55,21 +89,181 @@ Delivery Address: {order_details['address']}
 -----------------------------
 Thank you for using Mkulima Direct!
 """
-    msg.set_content(receipt_body)
 
-    # Reuse configured SMTP credentials for secure receipt delivery.
-    with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
-        smtp.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
-        smtp.send_message(msg)
+    subject = f"Mkulima Direct: {role} Receipt for Order #{order_details['order_id']}"
+    if not send_email(to_email, subject, receipt_body):
+        raise RuntimeError("Receipt email delivery failed")
 
-# Temporary storage for OTPs (Using email as the key instead of phone)
-OTP_STORE = {}
+OTP_PURPOSE_SIGNUP = 'signup'
+OTP_PURPOSE_LOGIN = 'login'
+SIGNUP_OTP_TTL_SECONDS = 10 * 60
+LOGIN_OTP_TTL_SECONDS = 5 * 60
 
 NAME_REGEX = re.compile(r'^[A-Za-z]+\s+[A-Za-z]+$')
 EMAIL_REGEX = re.compile(r'^[\w\.-]+@[\w\.-]+\.\w+$') # NEW: Validates an email address
 
 app = Flask(__name__)
 CORS(app)
+
+
+SESSION_STORE = {}
+SESSION_TTL_SECONDS = 60 * 60 * 8
+ADMIN_API_KEY = (os.environ.get('MKULIMA_ADMIN_API_KEY') or '').strip()
+MPESA_ENV = (os.environ.get('MPESA_ENV') or 'sandbox').strip().lower()
+MPESA_BASE_URL = (os.environ.get('MPESA_BASE_URL') or '').strip()
+MPESA_CONSUMER_KEY = (os.environ.get('MPESA_CONSUMER_KEY') or '').strip()
+MPESA_CONSUMER_SECRET = (os.environ.get('MPESA_CONSUMER_SECRET') or '').strip()
+MPESA_SHORTCODE = (os.environ.get('MPESA_SHORTCODE') or '').strip()
+MPESA_PASSKEY = (os.environ.get('MPESA_PASSKEY') or '').strip()
+MPESA_CALLBACK_URL = (os.environ.get('MPESA_CALLBACK_URL') or '').strip()
+
+
+def _mpesa_base_url():
+    if MPESA_BASE_URL:
+        return MPESA_BASE_URL
+    if MPESA_ENV == 'live':
+        return 'https://api.safaricom.co.ke'
+    return 'https://sandbox.safaricom.co.ke'
+
+
+def _normalize_mpesa_phone(phone_number):
+    digits = ''.join(ch for ch in str(phone_number or '') if ch.isdigit())
+    if digits.startswith('0') and len(digits) == 10:
+        digits = '254' + digits[1:]
+    elif digits.startswith('7') and len(digits) == 9:
+        digits = '254' + digits
+
+    if not digits.startswith('254') or len(digits) != 12:
+        raise ValueError('Phone number must be a valid Kenyan mobile number.')
+    return digits
+
+
+def _mpesa_timestamp():
+    return datetime.now().strftime('%Y%m%d%H%M%S')
+
+
+def _get_mpesa_access_token():
+    if not MPESA_CONSUMER_KEY or not MPESA_CONSUMER_SECRET:
+        raise RuntimeError('M-Pesa credentials are not configured.')
+
+    credentials = f"{MPESA_CONSUMER_KEY}:{MPESA_CONSUMER_SECRET}".encode('utf-8')
+    auth_b64 = base64.b64encode(credentials).decode('utf-8')
+
+    req = urlrequest.Request(
+        f"{_mpesa_base_url()}/oauth/v1/generate?grant_type=client_credentials",
+        headers={
+            'Authorization': f'Basic {auth_b64}'
+        },
+        method='GET'
+    )
+
+    with urlrequest.urlopen(req, timeout=20) as resp:
+        payload = json.loads(resp.read().decode('utf-8'))
+
+    access_token = payload.get('access_token')
+    if not access_token:
+        raise RuntimeError('Failed to obtain M-Pesa access token.')
+
+    return access_token
+
+
+def _initiate_mpesa_stk_push(phone_number, amount, account_reference, transaction_desc):
+    if not MPESA_SHORTCODE or not MPESA_PASSKEY or not MPESA_CALLBACK_URL:
+        raise RuntimeError('M-Pesa STK settings are not fully configured.')
+
+    normalized_phone = _normalize_mpesa_phone(phone_number)
+    timestamp = _mpesa_timestamp()
+    password = base64.b64encode(f"{MPESA_SHORTCODE}{MPESA_PASSKEY}{timestamp}".encode('utf-8')).decode('utf-8')
+    access_token = _get_mpesa_access_token()
+
+    payload = {
+        'BusinessShortCode': MPESA_SHORTCODE,
+        'Password': password,
+        'Timestamp': timestamp,
+        'TransactionType': 'CustomerPayBillOnline',
+        'Amount': int(round(float(amount))),
+        'PartyA': normalized_phone,
+        'PartyB': MPESA_SHORTCODE,
+        'PhoneNumber': normalized_phone,
+        'CallBackURL': MPESA_CALLBACK_URL,
+        'AccountReference': account_reference,
+        'TransactionDesc': transaction_desc
+    }
+
+    req = urlrequest.Request(
+        f"{_mpesa_base_url()}/mpesa/stkpush/v1/processrequest",
+        data=json.dumps(payload).encode('utf-8'),
+        headers={
+            'Authorization': f'Bearer {access_token}',
+            'Content-Type': 'application/json'
+        },
+        method='POST'
+    )
+
+    with urlrequest.urlopen(req, timeout=30) as resp:
+        return json.loads(resp.read().decode('utf-8'))
+
+
+def issue_session_token(user_name, role, user_email):
+    token = secrets.token_urlsafe(32)
+    SESSION_STORE[token] = {
+        "user_name": user_name,
+        "role": role,
+        "user_email": user_email,
+        "expires_at": time.time() + SESSION_TTL_SECONDS
+    }
+    return token
+
+
+def get_authenticated_session(required_role=None):
+    auth_header = (request.headers.get('Authorization') or '').strip()
+    token = ''
+    if auth_header.lower().startswith('bearer '):
+        token = auth_header[7:].strip()
+
+    if not token:
+        token = (request.headers.get('X-Session-Token') or '').strip()
+
+    if not token:
+        return None, (jsonify({"error": "Unauthorized. Missing session token."}), 401)
+
+    session = SESSION_STORE.get(token)
+    if not session:
+        return None, (jsonify({"error": "Unauthorized. Invalid session token."}), 401)
+
+    if session.get("expires_at", 0) < time.time():
+        SESSION_STORE.pop(token, None)
+        return None, (jsonify({"error": "Session expired. Please log in again."}), 401)
+
+    if required_role and session.get("role") != required_role:
+        return None, (jsonify({"error": "Forbidden. Role mismatch."}), 403)
+
+    if not session.get("user_email"):
+        return None, (jsonify({"error": "Session identity is incomplete. Please log in again."}), 401)
+
+    return session, None
+
+
+def get_admin_authorization():
+    """Allows admin access via admin session token or configured API key."""
+    auth_header = (request.headers.get('Authorization') or '').strip()
+    token = ''
+    if auth_header.lower().startswith('bearer '):
+        token = auth_header[7:].strip()
+
+    if token:
+        session = SESSION_STORE.get(token)
+        if session and session.get('expires_at', 0) >= time.time() and session.get('role') == 'admin':
+            return session, None
+
+    provided_key = (request.headers.get('X-Admin-Key') or '').strip()
+    if ADMIN_API_KEY and provided_key and hmac.compare_digest(provided_key, ADMIN_API_KEY):
+        return {"role": "admin", "auth": "api_key"}, None
+
+    if not ADMIN_API_KEY:
+        return None, (jsonify({"error": "Admin access is not configured on the server."}), 503)
+
+    return None, (jsonify({"error": "Forbidden. Admin access required."}), 403)
 
 
 def ensure_contact_columns_support_email():
@@ -175,6 +369,51 @@ def ensure_checkout_contact_columns():
 ensure_checkout_contact_columns()
 
 
+def ensure_produce_stock_is_numeric():
+    """Normalizes produce.stock_quantity to NUMERIC so arithmetic updates are safe."""
+    conn = get_db_connection()
+    if not conn:
+        return
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            ALTER TABLE produce
+            ALTER COLUMN stock_quantity TYPE NUMERIC(12, 2)
+            USING (
+                CASE
+                    WHEN TRIM(stock_quantity::text) ~ '^[0-9]+(\\.[0-9]+)?$'
+                        THEN TRIM(stock_quantity::text)::NUMERIC
+                    ELSE 0
+                END
+            )
+        """)
+
+        cursor.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint WHERE conname = 'produce_stock_quantity_non_negative'
+                ) THEN
+                    ALTER TABLE produce
+                    ADD CONSTRAINT produce_stock_quantity_non_negative
+                    CHECK (stock_quantity >= 0);
+                END IF;
+            END $$;
+        """)
+
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"Warning: could not normalize produce stock_quantity: {e}")
+    finally:
+        cursor.close()
+        conn.close()
+
+
+ensure_produce_stock_is_numeric()
+
+
 def ensure_audit_logs_table():
     """Ensures audit_logs exists for login/logout session tracking."""
     conn = get_db_connection()
@@ -203,6 +442,190 @@ def ensure_audit_logs_table():
 
 
 ensure_audit_logs_table()
+
+
+def ensure_otp_codes_table():
+    """Persists OTPs with expiry so verification survives app restarts."""
+    conn = get_db_connection()
+    if not conn:
+        return
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS otp_codes (
+                otp_id SERIAL PRIMARY KEY,
+                email VARCHAR(255) NOT NULL,
+                purpose VARCHAR(50) NOT NULL,
+                code VARCHAR(10) NOT NULL,
+                payload_json TEXT,
+                user_role VARCHAR(50),
+                user_name VARCHAR(255),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP NOT NULL,
+                used_at TIMESTAMP
+            )
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_otp_codes_lookup
+            ON otp_codes (email, purpose, created_at DESC)
+        """)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"Warning: could not ensure otp_codes table: {e}")
+    finally:
+        cursor.close()
+        conn.close()
+
+
+ensure_otp_codes_table()
+
+
+def ensure_farmer_wallet_tables():
+    """Ensures wallet tables exist for farmer credits and withdrawals."""
+    conn = get_db_connection()
+    if not conn:
+        return
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS farmer_wallet (
+                farmer_id INT PRIMARY KEY REFERENCES farmer(farmer_id) ON DELETE CASCADE,
+                balance NUMERIC(14, 2) NOT NULL DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS wallet_transactions (
+                txn_id SERIAL PRIMARY KEY,
+                farmer_id INT NOT NULL REFERENCES farmer(farmer_id) ON DELETE CASCADE,
+                type VARCHAR(20) NOT NULL,
+                amount NUMERIC(14, 2) NOT NULL,
+                reference VARCHAR(255),
+                status VARCHAR(50) NOT NULL DEFAULT 'Pending',
+                description TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"Warning: could not ensure farmer wallet tables: {e}")
+    finally:
+        cursor.close()
+        conn.close()
+
+
+ensure_farmer_wallet_tables()
+
+
+def store_otp_code(email, purpose, code, ttl_seconds, payload_json=None, user_role=None, user_name=None):
+    conn = get_db_connection()
+    if not conn:
+        return False
+
+    try:
+        cursor = conn.cursor()
+
+        # Keep only one active OTP per email+purpose to avoid ambiguity.
+        cursor.execute(
+            """
+            UPDATE otp_codes
+            SET used_at = CURRENT_TIMESTAMP
+            WHERE email = %s
+              AND purpose = %s
+              AND used_at IS NULL
+            """,
+            (email, purpose)
+        )
+
+        cursor.execute(
+            """
+            INSERT INTO otp_codes (email, purpose, code, payload_json, user_role, user_name, expires_at)
+            VALUES (
+                %s, %s, %s, %s, %s, %s,
+                CURRENT_TIMESTAMP + (%s || ' seconds')::interval
+            )
+            """,
+            (email, purpose, code, payload_json, user_role, user_name, str(int(ttl_seconds)))
+        )
+
+        # Opportunistic cleanup of stale rows.
+        cursor.execute("DELETE FROM otp_codes WHERE expires_at < CURRENT_TIMESTAMP OR used_at IS NOT NULL")
+
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback()
+        print(f"Warning: could not store OTP code: {e}")
+        return False
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def get_active_otp(email, purpose):
+    conn = get_db_connection()
+    if not conn:
+        return None
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT otp_id, code, payload_json, user_role, user_name
+            FROM otp_codes
+            WHERE email = %s
+              AND purpose = %s
+              AND used_at IS NULL
+              AND expires_at > CURRENT_TIMESTAMP
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (email, purpose)
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "otp_id": row[0],
+            "code": row[1],
+            "payload_json": row[2],
+            "user_role": row[3],
+            "user_name": row[4]
+        }
+    except Exception as e:
+        print(f"Warning: could not fetch OTP code: {e}")
+        return None
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def mark_otp_used(otp_id):
+    conn = get_db_connection()
+    if not conn:
+        return False
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE otp_codes SET used_at = CURRENT_TIMESTAMP WHERE otp_id = %s AND used_at IS NULL",
+            (otp_id,)
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    except Exception as e:
+        conn.rollback()
+        print(f"Warning: could not mark OTP as used: {e}")
+        return False
+    finally:
+        cursor.close()
+        conn.close()
 
 
 def record_login_audit(user_name, user_role):
@@ -254,6 +677,7 @@ def audit_logout():
     if not conn:
         return jsonify({"error": "Database connection failed"}), 500
 
+    cursor = None
     try:
         cursor = conn.cursor()
         cursor.execute("""
@@ -283,7 +707,7 @@ def audit_logout():
 # ----------------------------------------------------
 @app.route('/api/signup/request_otp', methods=['POST'])
 def signup_request_otp():
-    data = request.json
+    data = request.json or {}
     full_name = data.get('fullName')
     location = data.get('location')
     email = data.get('email')
@@ -299,12 +723,24 @@ def signup_request_otp():
     if not EMAIL_REGEX.match(email):
         return jsonify({"error": "Please enter a valid email address containing an '@' symbol."}), 400
 
-    # 2. Generate Code and Store it
+    # 2. Generate code and persist an expiring OTP row.
     otp_code = str(random.randint(100000, 999999))
-    OTP_STORE[email] = {
-        "code": otp_code,
-        "data": data
+    signup_payload = {
+        "fullName": full_name,
+        "location": location,
+        "email": email,
+        "role": data.get('role'),
+        "passwordHash": generate_password_hash(password)
     }
+    saved = store_otp_code(
+        email=email,
+        purpose=OTP_PURPOSE_SIGNUP,
+        code=otp_code,
+        ttl_seconds=SIGNUP_OTP_TTL_SECONDS,
+        payload_json=json.dumps(signup_payload)
+    )
+    if not saved:
+        return jsonify({"error": "Could not create verification code. Please try again."}), 500
 
     # 3. Send the Email
     subject = "Mkulima Direct Verification Code"
@@ -320,23 +756,33 @@ def signup_request_otp():
 # ----------------------------------------------------
 @app.route('/api/signup/verify', methods=['POST'])
 def signup_verify():
-    email = request.json.get('email') 
-    user_code = request.json.get('code')
-    role = request.json.get('role')
+    data = request.json or {}
+    email = data.get('email')
+    user_code = data.get('code')
+    role = data.get('role')
 
-    stored_data = OTP_STORE.get(email)
+    if not email or not user_code:
+        return jsonify({"error": "Email and code are required."}), 400
+
+    stored_data = get_active_otp(email, OTP_PURPOSE_SIGNUP)
 
     if not stored_data or stored_data['code'] != user_code:
         return jsonify({"error": "Invalid or expired verification code."}), 400
 
     # If code matches, insert them into the database
-    signup_data = stored_data['data']
+    signup_data = {}
+    try:
+        signup_data = json.loads(stored_data.get('payload_json') or '{}')
+    except json.JSONDecodeError:
+        signup_data = {}
+
     full_name = signup_data.get('fullName')
     location = signup_data.get('location')
-    password = signup_data.get('password')
     role = (role or signup_data.get('role') or '').lower()
+    password_hash = signup_data.get('passwordHash')
 
-    hashed_password = generate_password_hash(password)
+    if not all([full_name, location, password_hash]):
+        return jsonify({"error": "Verification data expired or corrupted. Please request a new code."}), 400
 
     conn = get_db_connection()
     if not conn:
@@ -348,16 +794,16 @@ def signup_verify():
         if role == 'farmer':
             cursor.execute(
                 "INSERT INTO farmer (full_name, email, farmer_location, password_hash) VALUES (%s, %s, %s, %s)",
-                (full_name, email, location, hashed_password)
+                (full_name, email, location, password_hash)
             )
         else:
             cursor.execute(
                 "INSERT INTO buyer (full_name, email, password_hash) VALUES (%s, %s, %s)",
-                (full_name, email, hashed_password)
+                (full_name, email, password_hash)
             )
 
         conn.commit()
-        del OTP_STORE[email] # Clear memory
+        mark_otp_used(stored_data['otp_id'])
         return jsonify({"message": "Account verified and created successfully!"}), 200
 
     except Exception as e:
@@ -427,7 +873,7 @@ def register_user():
 # ----------------------------------------------------
 @app.route('/api/login', methods=['POST'])
 def login_user():
-    data = request.json
+    data = request.json or {}
     name = data.get('name') 
     password = data.get('password')
 
@@ -469,12 +915,16 @@ def login_user():
         # 4. Generate and send the Login OTP
         otp_code = str(random.randint(100000, 999999))
         
-        # Store it in memory using a special 'login_' prefix
-        OTP_STORE[f"login_{user_email}"] = {
-            "code": otp_code,
-            "role": user_role,
-            "name": name
-        }
+        saved = store_otp_code(
+            email=user_email,
+            purpose=OTP_PURPOSE_LOGIN,
+            code=otp_code,
+            ttl_seconds=LOGIN_OTP_TTL_SECONDS,
+            user_role=user_role,
+            user_name=name
+        )
+        if not saved:
+            return jsonify({"error": "Failed to generate login code. Please try again."}), 500
 
         subject = "Mkulima Direct - Login Attempt"
         body = f"Hello {name},\n\nSomeone is attempting to log into your account.\nYour 6-digit login code is: {otp_code}\n\nIf this was not you, please secure your account."
@@ -499,35 +949,47 @@ def login_user():
 # ----------------------------------------------------
 @app.route('/api/login/verify', methods=['POST'])
 def login_verify():
-    data = request.json
+    data = request.json or {}
     email = data.get('email')
     user_code = data.get('code')
 
     if not email or not user_code:
          return jsonify({"error": "Email and code are required."}), 400
 
-    # Fetch the code we stored in memory during Step 1
-    stored_data = OTP_STORE.get(f"login_{email}")
+    stored_data = get_active_otp(email, OTP_PURPOSE_LOGIN)
 
     if not stored_data or stored_data['code'] != user_code:
         return jsonify({"error": "Invalid or expired login code."}), 400
 
     # Success! Grab the role so the frontend knows where to redirect
-    role = stored_data['role']
-    user_name = stored_data['name']
+    role = stored_data.get('user_role')
+    user_name = stored_data.get('user_name')
+
+    if not role or not user_name:
+        return jsonify({"error": "Login verification data is invalid. Please request a new code."}), 400
 
     # Record a login audit row for this new authenticated session.
     record_login_audit(user_name, role)
     
-    # Clear the OTP memory so the code can't be reused
-    del OTP_STORE[f"login_{email}"]
+    # Consume OTP so it can't be reused.
+    mark_otp_used(stored_data['otp_id'])
 
-    return jsonify({"message": "Login successful!", "role": role}), 200
+    session_token = issue_session_token(user_name, role, email)
+    return jsonify({
+        "message": "Login successful!",
+        "role": role,
+        "userName": user_name,
+        "token": session_token
+    }), 200
 # ----------------------------------------------------
 # ROUTE 3: GET ALL USERS (For the Admin Dashboard)
 # ----------------------------------------------------
 @app.route('/api/users', methods=['GET'])
 def get_all_users():
+    _admin, auth_error = get_admin_authorization()
+    if auth_error:
+        return auth_error
+
     conn = get_db_connection()
     if not conn:
         return jsonify({"error": "Database connection failed"}), 500
@@ -552,7 +1014,7 @@ def get_all_users():
             user_list.append({
                 "fullName": user[0],
                 "role": user[1],
-                "phone": user[2],
+                "email": user[2],
                 # Format the timestamp so it looks nice (e.g., "2026-06-16 11:30")
                 "joinedDate": user[3].strftime("%Y-%m-%d %H:%M") if user[3] else "Unknown"
             })
@@ -569,6 +1031,10 @@ def get_all_users():
 # ----------------------------------------------------
 @app.route('/api/admin/stats', methods=['GET'])
 def get_admin_stats():
+    _admin, auth_error = get_admin_authorization()
+    if auth_error:
+        return auth_error
+
     conn = get_db_connection()
     if not conn:
         return jsonify({"error": "Database connection failed"}), 500
@@ -629,6 +1095,10 @@ def get_admin_stats():
 
 @app.route('/api/farmers', methods=['GET'])
 def get_farmers():
+    _admin, auth_error = get_admin_authorization()
+    if auth_error:
+        return auth_error
+
     conn = get_db_connection()
     if not conn:
         return jsonify({"error": "Database connection failed"}), 500
@@ -653,6 +1123,10 @@ def get_farmers():
 
 @app.route('/api/buyers', methods=['GET'])
 def get_buyers():
+    _admin, auth_error = get_admin_authorization()
+    if auth_error:
+        return auth_error
+
     conn = get_db_connection()
     if not conn:
         return jsonify({"error": "Database connection failed"}), 500
@@ -677,6 +1151,10 @@ def get_buyers():
 
 @app.route('/api/orders', methods=['GET'])
 def get_orders():
+    _admin, auth_error = get_admin_authorization()
+    if auth_error:
+        return auth_error
+
     conn = get_db_connection()
     if not conn:
         return jsonify({"error": "Database connection failed"}), 500
@@ -702,6 +1180,10 @@ def get_orders():
 
 @app.route('/api/admin/users/<role>/<int:user_id>', methods=['PUT'])
 def admin_update_user(role, user_id):
+    _admin, auth_error = get_admin_authorization()
+    if auth_error:
+        return auth_error
+
     role = (role or '').lower()
     if role not in ['farmer', 'buyer']:
         return jsonify({"error": "Invalid role."}), 400
@@ -764,6 +1246,10 @@ def admin_update_user(role, user_id):
 
 @app.route('/api/admin/users/<role>/<int:user_id>', methods=['DELETE'])
 def admin_delete_user(role, user_id):
+    _admin, auth_error = get_admin_authorization()
+    if auth_error:
+        return auth_error
+
     role = (role or '').lower()
     if role not in ['farmer', 'buyer']:
         return jsonify({"error": "Invalid role."}), 400
@@ -796,9 +1282,13 @@ def admin_delete_user(role, user_id):
 # ----------------------------------------------------
 @app.route('/api/produce', methods=['POST'])
 def add_produce():
+    session, auth_error = get_authenticated_session(required_role='farmer')
+    if auth_error:
+        return auth_error
+
     data = request.json
 
-    farmer_name = data.get('farmerName') 
+    farmer_email = session['user_email']
     name = data.get('name')
     description = data.get('description')
     category = data.get('category')
@@ -806,8 +1296,15 @@ def add_produce():
     unit = data.get('unit')
     quantity = data.get('quantity')
 
+    try:
+        quantity = float(quantity)
+        if quantity <= 0:
+            return jsonify({"error": "Quantity must be greater than 0."}), 400
+    except (TypeError, ValueError):
+        return jsonify({"error": "Quantity must be a valid number."}), 400
+
     # Basic validation
-    if not all([farmer_name, name, price, unit, quantity]):
+    if not all([name, price, unit, quantity]):
         return jsonify({"error": "Please fill in all required fields!"}), 400
 
     conn = get_db_connection()
@@ -817,12 +1314,12 @@ def add_produce():
     try:
         cursor = conn.cursor()
 
-        # 1. Look up the farmer's ID using the name they typed
-        cursor.execute("SELECT farmer_id FROM farmer WHERE full_name = %s", (farmer_name,))
+        # 1. Resolve the authenticated farmer using unique email.
+        cursor.execute("SELECT farmer_id FROM farmer WHERE email = %s", (farmer_email,))
         farmer = cursor.fetchone()
 
         if not farmer:
-            return jsonify({"error": "Farmer not found. Please ensure you typed your registered name exactly."}), 404
+            return jsonify({"error": "Farmer account not found."}), 404
 
         farmer_id = farmer[0]
 
@@ -913,12 +1410,16 @@ def get_all_produce():
 # ----------------------------------------------------
 @app.route('/api/cart', methods=['POST'])
 def add_to_cart():
+    session, auth_error = get_authenticated_session(required_role='buyer')
+    if auth_error:
+        return auth_error
+
     data = request.json
-    buyer_name = data.get('buyerName')
+    buyer_email = session['user_email']
     produce_id = data.get('produceId')
 
-    if not buyer_name or not produce_id:
-        return jsonify({"error": "Buyer name and produce ID are required"}), 400
+    if not produce_id:
+        return jsonify({"error": "Produce ID is required"}), 400
 
     conn = get_db_connection()
     if not conn:
@@ -927,12 +1428,12 @@ def add_to_cart():
     try:
         cursor = conn.cursor()
 
-        # 1. Find the buyer's ID using their name
-        cursor.execute("SELECT buyer_id FROM buyer WHERE full_name = %s", (buyer_name,))
+        # 1. Resolve the authenticated buyer using unique email.
+        cursor.execute("SELECT buyer_id FROM buyer WHERE email = %s", (buyer_email,))
         buyer = cursor.fetchone()
 
         if not buyer:
-            return jsonify({"error": "Buyer not found. Did you type your registered name correctly?"}), 404
+            return jsonify({"error": "Buyer account not found."}), 404
 
         buyer_id = buyer[0]
 
@@ -956,6 +1457,13 @@ def add_to_cart():
 # ----------------------------------------------------
 @app.route('/api/cart/<buyer_name>', methods=['GET'])
 def view_cart(buyer_name):
+    session, auth_error = get_authenticated_session(required_role='buyer')
+    if auth_error:
+        return auth_error
+
+    if buyer_name != session['user_name']:
+        return jsonify({"error": "Forbidden. You can only access your own cart."}), 403
+
     conn = get_db_connection()
     if not conn:
         return jsonify({"error": "Database connection failed"}), 500
@@ -963,8 +1471,8 @@ def view_cart(buyer_name):
     try:
         cursor = conn.cursor()
 
-        # 1. Find the buyer's ID
-        cursor.execute("SELECT buyer_id FROM buyer WHERE full_name = %s", (buyer_name,))
+        # 1. Resolve the authenticated buyer using unique email.
+        cursor.execute("SELECT buyer_id FROM buyer WHERE email = %s", (session['user_email'],))
         buyer = cursor.fetchone()
 
         if not buyer:
@@ -1010,13 +1518,17 @@ def view_cart(buyer_name):
 
 @app.route('/api/cart/update', methods=['POST'])
 def update_cart_quantity():
+    session, auth_error = get_authenticated_session(required_role='buyer')
+    if auth_error:
+        return auth_error
+
     data = request.json or {}
-    buyer_name = data.get('buyerName')
+    buyer_email = session['user_email']
     produce_id = data.get('produceId')
     new_quantity = data.get('newQuantity')
 
-    if not buyer_name or produce_id is None or new_quantity is None:
-        return jsonify({"error": "buyerName, produceId, and newQuantity are required."}), 400
+    if produce_id is None or new_quantity is None:
+        return jsonify({"error": "produceId and newQuantity are required."}), 400
 
     try:
         produce_id = int(produce_id)
@@ -1032,7 +1544,7 @@ def update_cart_quantity():
 
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT buyer_id FROM buyer WHERE full_name = %s", (buyer_name,))
+        cursor.execute("SELECT buyer_id FROM buyer WHERE email = %s", (buyer_email,))
         buyer = cursor.fetchone()
         if not buyer:
             return jsonify({"error": "Buyer not found."}), 404
@@ -1061,13 +1573,25 @@ def update_cart_quantity():
 # ----------------------------------------------------
 @app.route('/api/cart/<int:cart_id>', methods=['DELETE'])
 def remove_from_cart(cart_id):
+    session, auth_error = get_authenticated_session(required_role='buyer')
+    if auth_error:
+        return auth_error
+
     conn = get_db_connection()
     if not conn:
         return jsonify({"error": "Database connection failed"}), 500
 
     try:
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM cart WHERE cart_id = %s", (cart_id,))
+        cursor.execute("SELECT buyer_id FROM buyer WHERE email = %s", (session['user_email'],))
+        buyer = cursor.fetchone()
+        if not buyer:
+            return jsonify({"error": "Buyer not found."}), 404
+
+        cursor.execute("DELETE FROM cart WHERE cart_id = %s AND buyer_id = %s", (cart_id, buyer[0]))
+        if cursor.rowcount == 0:
+            conn.rollback()
+            return jsonify({"error": "Cart item not found for this account."}), 404
         conn.commit()
         return jsonify({"message": "Item removed from cart"}), 200
     except Exception as e:
@@ -1080,12 +1604,17 @@ def remove_from_cart(cart_id):
 # ----------------------------------------------------
 @app.route('/api/checkout', methods=['POST'])
 def process_checkout():
+    session, auth_error = get_authenticated_session(required_role='buyer')
+    if auth_error:
+        return auth_error
+
     data = request.json or {}
-    buyer_name = data.get('buyerName')
+    buyer_name = session['user_name']
+    buyer_email = session['user_email']
     delivery_address = (data.get('deliveryAddress') or '').strip()
     phone_number = (data.get('phoneNumber') or '').strip()
 
-    if not buyer_name or not delivery_address or not phone_number:
+    if not delivery_address or not phone_number:
         return jsonify({"error": "All checkout details are required"}), 400
 
     conn = get_db_connection()
@@ -1096,7 +1625,7 @@ def process_checkout():
         cursor = conn.cursor()
 
         # 1. Get the Buyer ID and email
-        cursor.execute("SELECT buyer_id, email FROM buyer WHERE full_name = %s", (buyer_name,))
+        cursor.execute("SELECT buyer_id, email FROM buyer WHERE email = %s", (buyer_email,))
         buyer = cursor.fetchone()
         if not buyer:
             return jsonify({"error": "Buyer not found."}), 404
@@ -1128,6 +1657,25 @@ def process_checkout():
         # 4. Move items from Cart to `order_details` and keep delivery address and phone per line item
         for item in cart_items:
             produce_id, quantity, price = item
+
+            # Lock the produce row and validate available stock before creating order lines.
+            cursor.execute(
+                "SELECT stock_quantity FROM produce WHERE produce_id = %s FOR UPDATE",
+                (produce_id,)
+            )
+            stock_row = cursor.fetchone()
+            if not stock_row:
+                return jsonify({"error": f"Produce item #{produce_id} was not found."}), 404
+
+            available_stock = float(stock_row[0] or 0)
+            if available_stock < quantity:
+                return jsonify({"error": f"Insufficient stock for item #{produce_id}. Available: {available_stock}, requested: {quantity}."}), 409
+
+            cursor.execute(
+                "UPDATE produce SET stock_quantity = stock_quantity - %s WHERE produce_id = %s",
+                (quantity, produce_id)
+            )
+
             subtotal = quantity * price
             cursor.execute("""
                 INSERT INTO order_details (
@@ -1141,15 +1689,13 @@ def process_checkout():
                 )
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
             """, (order_id, produce_id, quantity, price, subtotal, delivery_address, phone_number))
-            
-            # (Optional but cool: Subtract the quantity from the farmer's stock here!)
-            # cursor.execute("UPDATE produce SET stock_quantity = stock_quantity - %s WHERE produce_id = %s", (quantity, produce_id))
-
         # 5. Create a Pending Payment record
         cursor.execute("""
             INSERT INTO payments (order_id, amount, payment_method, payment_status)
             VALUES (%s, %s, 'M-Pesa (Pending)', 'Pending')
+            RETURNING payment_id
         """, (order_id, grand_total))
+        payment_id = cursor.fetchone()[0]
 
         # 6. Wipe the user's cart clean!
         cursor.execute("DELETE FROM cart WHERE buyer_id = %s", (buyer_id,))
@@ -1207,9 +1753,19 @@ def process_checkout():
                     print("Email Failed to send")
 
         if receipt_email_failed:
-            return jsonify({"message": f"Order #{order_id} placed successfully! Total: KSh {grand_total}. Receipt email failed to send."}), 201
+            return jsonify({
+                "message": f"Order #{order_id} placed successfully! Total: KSh {grand_total}. Receipt email failed to send.",
+                "orderId": order_id,
+                "paymentId": payment_id,
+                "totalAmount": float(grand_total)
+            }), 201
 
-        return jsonify({"message": f"Order #{order_id} placed successfully! Total: KSh {grand_total}. Receipt sent successfully!"}), 201
+        return jsonify({
+            "message": f"Order #{order_id} placed successfully! Total: KSh {grand_total}. Receipt sent successfully!",
+            "orderId": order_id,
+            "paymentId": payment_id,
+            "totalAmount": float(grand_total)
+        }), 201
 
     except Exception as e:
         # If any of the steps above fail, cancel ALL of them so the database doesn't break
@@ -1218,11 +1774,288 @@ def process_checkout():
     finally:
         cursor.close()
         conn.close()
+
+
+def parse_callback(payload):
+    """
+    Parse Safaricom STK callback JSON into one consistent shape.
+
+    Why this exists:
+    - Safaricom callback payloads are nested and can vary slightly in structure.
+    - The rest of the code should not care about nesting details.
+
+    Returned keys:
+    - checkout_id: CheckoutRequestID sent from STK initiation.
+    - merchant_id: MerchantRequestID from Daraja.
+    - result_code/result_desc: callback outcome code and message.
+    - success: True only when result_code == 0.
+    - mpesa_code: receipt number (MpesaReceiptNumber) when payment succeeds.
+    """
+    stk_callback = (payload.get("Body") or {}).get("stkCallback") or payload.get("stkCallback") or {}
+    metadata_items = ((stk_callback.get("CallbackMetadata") or {}).get("Item") or [])
+    metadata_map = {}
+    for item in metadata_items:
+        name = item.get("Name")
+        if name:
+            metadata_map[name] = item.get("Value")
+
+    raw_result_code = stk_callback.get("ResultCode")
+    try:
+        result_code = int(raw_result_code)
+    except (TypeError, ValueError):
+        result_code = raw_result_code
+
+    return {
+        "checkout_id": stk_callback.get("CheckoutRequestID", ""),
+        "merchant_id": stk_callback.get("MerchantRequestID", ""),
+        "result_code": result_code,
+        "result_desc": stk_callback.get("ResultDesc", ""),
+        "success": result_code == 0,
+        "mpesa_code": str(metadata_map.get("MpesaReceiptNumber") or "")
+    }
+
+
+# ----------------------------------------------------
+# ROUTE 10A: INITIATE M-PESA STK PUSH
+# ----------------------------------------------------
+@app.route('/api/mpesa-pay', methods=['POST'])
+def mpesa_pay():
+    """
+    Start an STK push for a buyer's order and persist CheckoutRequestID.
+
+    Flow:
+    1) Authenticate buyer session from token.
+    2) Validate order ownership and amount.
+    3) Trigger Daraja STK push.
+    4) Save CheckoutRequestID in payments.transaction_reference.
+
+    The saved CheckoutRequestID is critical because Safaricom callback uses it
+    as the primary correlation key. Without this persistence, callback matching
+    would fail or become unreliable.
+    """
+    session, auth_error = get_authenticated_session(required_role='buyer')
+    if auth_error:
+        return auth_error
+
+    data = request.json or {}
+    order_id = data.get('orderId')
+    phone_number = (data.get('phoneNumber') or '').strip()
+
+    if not order_id or not phone_number:
+        return jsonify({"error": "orderId and phoneNumber are required."}), 400
+
+    try:
+        order_id = int(order_id)
+    except (TypeError, ValueError):
+        return jsonify({"error": "orderId must be a valid number."}), 400
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT buyer_id FROM buyer WHERE email = %s", (session['user_email'],))
+        buyer_row = cursor.fetchone()
+        if not buyer_row:
+            return jsonify({"error": "Buyer account not found."}), 404
+
+        buyer_id = buyer_row[0]
+        cursor.execute(
+            """
+            SELECT total_amount, order_status
+            FROM orders
+            WHERE order_id = %s AND buyer_id = %s
+            """,
+            (order_id, buyer_id)
+        )
+        order_row = cursor.fetchone()
+        if not order_row:
+            return jsonify({"error": "Order not found for this account."}), 404
+
+        amount = float(order_row[0] or 0)
+        if amount <= 0:
+            return jsonify({"error": "Order amount is invalid for payment initiation."}), 400
+
+        cursor.execute(
+            """
+            SELECT payment_id
+            FROM payments
+            WHERE order_id = %s
+            ORDER BY payment_id DESC
+            LIMIT 1
+            """,
+            (order_id,)
+        )
+        payment_row = cursor.fetchone()
+        if not payment_row:
+            return jsonify({"error": "Payment record not found for this order."}), 404
+
+        payment_id = payment_row[0]
+        account_reference = f"Order{order_id}"
+        stk_response = _initiate_mpesa_stk_push(
+            phone_number=phone_number,
+            amount=amount,
+            account_reference=account_reference,
+            transaction_desc=f"MkulimaDirect Order #{order_id}"
+        )
+
+        checkout_request_id = stk_response.get('CheckoutRequestID', '')
+        if not checkout_request_id:
+            conn.rollback()
+            return jsonify({
+                "error": "M-Pesa did not return CheckoutRequestID.",
+                "mpesaResponse": stk_response
+            }), 502
+
+        cursor.execute(
+            """
+            UPDATE payments
+            SET transaction_reference = %s,
+                payment_method = 'M-Pesa (STK Push)',
+                payment_status = 'Pending'
+            WHERE payment_id = %s
+            """,
+            (checkout_request_id, payment_id)
+        )
+
+        conn.commit()
+        return jsonify({
+            "message": "M-Pesa STK push initiated. Complete payment on your phone.",
+            "orderId": order_id,
+            "paymentId": payment_id,
+            "checkoutRequestID": checkout_request_id,
+            "merchantRequestID": stk_response.get('MerchantRequestID', ''),
+            "customerMessage": stk_response.get('CustomerMessage', '')
+        }), 200
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"error": f"M-Pesa initiation failed: {str(e)}"}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        conn.close()
+
+
+# ----------------------------------------------------
+# ROUTE 10B: M-PESA CALLBACK
+# ----------------------------------------------------
+@app.route('/api/mpesa/callback', methods=['POST'])
+def mpesa_callback():
+    """
+    Receive STK callback and finalize payment/order/wallet updates.
+
+    Success path (ResultCode = 0):
+    - mark payment Completed
+    - replace transaction_reference with Mpesa receipt (if present)
+    - mark order Confirmed
+    - credit each farmer's wallet based on order_details subtotals
+    - insert wallet credit transactions for auditability
+
+    Failure path:
+    - mark payment Failed using CheckoutRequestID lookup
+
+    Callback always returns HTTP 200 with accepted payload response so Daraja
+    does not keep retrying due to transient app-side processing issues.
+    """
+    callback_data = request.json or {}
+    result = parse_callback(callback_data)
+
+    conn = get_db_connection()
+    if not conn:
+        print("Callback received but DB connection failed.")
+        return jsonify({"ResultCode": 0, "ResultDesc": "Accepted"}), 200
+
+    cursor = None
+    try:
+        cursor = conn.cursor()
+
+        if result["success"]:
+            # 1. Confirm the payment record and get the order_id
+            cursor.execute("""
+                UPDATE payments
+                SET payment_status       = 'Completed',
+                    transaction_reference = %s
+                WHERE transaction_reference = %s
+                RETURNING order_id
+            """, (result["mpesa_code"] or result["checkout_id"], result["checkout_id"]))
+
+            row = cursor.fetchone()
+            if row:
+                order_id = row[0]
+
+                # 2. Confirm the order
+                cursor.execute("""
+                    UPDATE orders SET order_status = 'Confirmed'
+                    WHERE order_id = %s
+                """, (order_id,))
+
+                # 3. Credit each farmer's wallet for their items in this order
+                cursor.execute("""
+                    SELECT p.farmer_id, SUM(od.subtotal) as farmer_earnings
+                    FROM order_details od
+                    JOIN produce p ON od.produce_id = p.produce_id
+                    WHERE od.order_id = %s
+                    GROUP BY p.farmer_id
+                """, (order_id,))
+
+                farmer_earnings = cursor.fetchall()
+
+                for farmer_id, earnings in farmer_earnings:
+                    # Credit the wallet balance
+                    cursor.execute("""
+                        INSERT INTO farmer_wallet (farmer_id, balance)
+                        VALUES (%s, %s)
+                        ON CONFLICT (farmer_id)
+                        DO UPDATE SET
+                            balance    = farmer_wallet.balance + EXCLUDED.balance,
+                            updated_at = CURRENT_TIMESTAMP
+                    """, (farmer_id, earnings))
+
+                    # Record the credit transaction
+                    cursor.execute("""
+                        INSERT INTO wallet_transactions
+                            (farmer_id, type, amount, reference, status, description)
+                        VALUES (%s, 'credit', %s, %s, 'Completed', %s)
+                    """, (
+                        farmer_id,
+                        earnings,
+                        result["mpesa_code"] or result["checkout_id"],
+                        f"Payment received for Order #{order_id}"
+                    ))
+
+                print(f"Payment confirmed for order {order_id}. Receipt: {result['mpesa_code']}")
+        else:
+            # Payment failed - mark as Failed
+            cursor.execute("""
+                UPDATE payments SET payment_status = 'Failed'
+                WHERE transaction_reference = %s
+            """, (result["checkout_id"],))
+            print(f"Payment failed. Code: {result['result_code']} - {result['result_desc']}")
+
+        conn.commit()
+
+    except Exception as e:
+        conn.rollback()
+        print(f"Callback processing error: {e}")
+    finally:
+        if cursor:
+            cursor.close()
+        conn.close()
+
+    return jsonify({"ResultCode": 0, "ResultDesc": "Accepted"}), 200
 # ----------------------------------------------------
 # ROUTE 11: FARMER DASHBOARD STATS (UPGRADED)
 # ----------------------------------------------------
 @app.route('/api/farmer/stats/<farmer_name>', methods=['GET'])
 def get_farmer_stats(farmer_name):
+    session, auth_error = get_authenticated_session(required_role='farmer')
+    if auth_error:
+        return auth_error
+
+    if farmer_name != session['user_name']:
+        return jsonify({"error": "Forbidden. You can only access your own dashboard."}), 403
+
     conn = get_db_connection()
     if not conn:
         return jsonify({"error": "Database connection failed"}), 500
@@ -1231,7 +2064,7 @@ def get_farmer_stats(farmer_name):
         cursor = conn.cursor()
 
         # 1. Get the Farmer ID
-        cursor.execute("SELECT farmer_id FROM farmer WHERE full_name = %s", (farmer_name,))
+        cursor.execute("SELECT farmer_id FROM farmer WHERE email = %s", (session['user_email'],))
         farmer = cursor.fetchone()
         if not farmer:
             return jsonify({"error": "Farmer not found."}), 404
@@ -1289,6 +2122,13 @@ def get_farmer_stats(farmer_name):
 # ----------------------------------------------------
 @app.route('/api/farmer/orders/<farmer_name>', methods=['GET'])
 def get_farmer_orders(farmer_name):
+    session, auth_error = get_authenticated_session(required_role='farmer')
+    if auth_error:
+        return auth_error
+
+    if farmer_name != session['user_name']:
+        return jsonify({"error": "Forbidden. You can only access your own orders."}), 403
+
     conn = get_db_connection()
     if not conn:
         return jsonify({"error": "Database connection failed"}), 500
@@ -1297,7 +2137,7 @@ def get_farmer_orders(farmer_name):
         cursor = conn.cursor()
 
         # 1. Get the Farmer ID
-        cursor.execute("SELECT farmer_id FROM farmer WHERE full_name = %s", (farmer_name,))
+        cursor.execute("SELECT farmer_id FROM farmer WHERE email = %s", (session['user_email'],))
         farmer = cursor.fetchone()
         if not farmer:
             return jsonify({"error": "Farmer not found."}), 404
@@ -1350,6 +2190,13 @@ def get_farmer_orders(farmer_name):
 
 @app.route('/api/farmer/orders/<farmer_name>/<int:order_id>/status', methods=['PUT'])
 def update_farmer_order_status(farmer_name, order_id):
+    session, auth_error = get_authenticated_session(required_role='farmer')
+    if auth_error:
+        return auth_error
+
+    if farmer_name != session['user_name']:
+        return jsonify({"error": "Forbidden. You can only update your own orders."}), 403
+
     data = request.json or {}
     requested_status = (data.get('status') or '').strip().lower()
 
@@ -1369,7 +2216,7 @@ def update_farmer_order_status(farmer_name, order_id):
     try:
         cursor = conn.cursor()
 
-        cursor.execute("SELECT farmer_id FROM farmer WHERE full_name = %s", (farmer_name,))
+        cursor.execute("SELECT farmer_id FROM farmer WHERE email = %s", (session['user_email'],))
         farmer = cursor.fetchone()
         if not farmer:
             return jsonify({"error": "Farmer not found."}), 404
@@ -1409,101 +2256,18 @@ def update_farmer_order_status(farmer_name, order_id):
         conn.close()
 
 
-@app.route('/api/farmer/update_order', methods=['POST'])
-def update_order_status():
-    data = request.json or {}
-    order_id = data.get('orderId')
-    new_status = (data.get('status') or '').strip().title()
-    farmer_name = (data.get('farmerName') or '').strip()
-
-    if not order_id or not farmer_name or not new_status:
-        return jsonify({"error": "orderId, status, and farmerName are required."}), 400
-
-    try:
-        order_id = int(order_id)
-    except (TypeError, ValueError):
-        return jsonify({"error": "orderId must be a valid number."}), 400
-
-    if new_status not in {'Delivered', 'Completed', 'Cancelled'}:
-        return jsonify({"error": "Invalid status. Use Delivered, Completed, or Cancelled."}), 400
-
-    conn = get_db_connection()
-    if not conn:
-        return jsonify({"error": "Database connection failed"}), 500
-
-    try:
-        cursor = conn.cursor()
-        # Confirm the order exists and is still pending before attempting update.
-        cursor.execute("SELECT order_status FROM orders WHERE order_id = %s", (order_id,))
-        order_row = cursor.fetchone()
-        if not order_row:
-            return jsonify({"error": "Order not found."}), 404
-
-        if (order_row[0] or '').strip().lower() != 'pending':
-            return jsonify({"error": "Only pending orders can be updated."}), 409
-
-        # Ensure the farmer actually owns this order before updating
-        cursor.execute("""
-            UPDATE orders
-            SET order_status = %s
-            WHERE order_id = %s
-            AND EXISTS (
-                SELECT 1
-                FROM produce p
-                JOIN order_details od ON p.produce_id = od.produce_id
-                JOIN farmer f ON f.farmer_id = p.farmer_id
-                WHERE od.order_id = %s
-                AND LOWER(TRIM(f.full_name)) = LOWER(TRIM(%s))
-            )
-        """, (new_status, order_id, order_id, farmer_name))
-
-        if cursor.rowcount == 0:
-            conn.rollback()
-            return jsonify({"error": "Order does not belong to this farmer."}), 403
-
-        conn.commit()
-        return jsonify({"message": "Order status updated successfully!", "orderId": order_id, "status": new_status}), 200
-    except Exception as e:
-        conn.rollback()
-        return jsonify({"error": str(e)}), 500
-    finally:
-        cursor.close()
-        conn.close()
-
-
-@app.route('/api/orders/<int:order_id>/deliver', methods=['PUT'])
-def mark_order_delivered(order_id):
-    """Backward-compatible endpoint used by older farmer UI."""
-    conn = get_db_connection()
-    if not conn:
-        return jsonify({"error": "Database connection failed"}), 500
-
-    try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT order_status FROM orders WHERE order_id = %s", (order_id,))
-        row = cursor.fetchone()
-        if not row:
-            return jsonify({"error": "Order not found."}), 404
-
-        current_status = (row[0] or '').strip().lower()
-        if current_status != 'pending':
-            return jsonify({"error": "Only pending orders can be marked delivered."}), 409
-
-        cursor.execute("UPDATE orders SET order_status = 'Delivered' WHERE order_id = %s", (order_id,))
-        conn.commit()
-        return jsonify({"message": "Order marked as delivered.", "orderId": order_id, "status": "Delivered"}), 200
-    except Exception as e:
-        conn.rollback()
-        return jsonify({"error": str(e)}), 500
-    finally:
-        cursor.close()
-        conn.close()
-
 # ----------------------------------------------------
 # ROUTE 13: BUYER ORDER HISTORY
 # ----------------------------------------------------
 @app.route('/api/buyer/orders/<buyer_name>', methods=['GET'])
 def get_buyer_orders(buyer_name):
+    session, auth_error = get_authenticated_session(required_role='buyer')
+    if auth_error:
+        return auth_error
+
+    if buyer_name != session['user_name']:
+        return jsonify({"error": "Forbidden. You can only access your own order history."}), 403
+
     conn = get_db_connection()
     if not conn:
         return jsonify({"error": "Database connection failed"}), 500
@@ -1512,7 +2276,7 @@ def get_buyer_orders(buyer_name):
         cursor = conn.cursor()
 
         # 1. Get the Buyer ID
-        cursor.execute("SELECT buyer_id FROM buyer WHERE full_name = %s", (buyer_name,))
+        cursor.execute("SELECT buyer_id FROM buyer WHERE email = %s", (session['user_email'],))
         buyer = cursor.fetchone()
         if not buyer:
             return jsonify({"error": "Buyer not found."}), 404
@@ -1567,12 +2331,16 @@ def get_buyer_orders(buyer_name):
 # ----------------------------------------------------
 @app.route('/api/rate', methods=['POST'])
 def rate_farmer():
+    session, auth_error = get_authenticated_session(required_role='buyer')
+    if auth_error:
+        return auth_error
+
     data = request.json
-    buyer_name = data.get('buyerName')
     farmer_name = data.get('farmerName')
+    farmer_email = (data.get('farmerEmail') or '').strip()
     rating = data.get('rating')
 
-    if not all([buyer_name, farmer_name, rating]):
+    if not all([farmer_name, farmer_email, rating]):
         return jsonify({"error": "Missing rating data"}), 400
 
     try:
@@ -1589,11 +2357,11 @@ def rate_farmer():
     try:
         cursor = conn.cursor()
         
-        # 1. Get the IDs for both users
-        cursor.execute("SELECT buyer_id FROM buyer WHERE full_name = %s", (buyer_name,))
+        # 1. Resolve buyer identity via unique session email.
+        cursor.execute("SELECT buyer_id FROM buyer WHERE email = %s", (session['user_email'],))
         buyer = cursor.fetchone()
-        
-        cursor.execute("SELECT farmer_id FROM farmer WHERE full_name = %s", (farmer_name,))
+
+        cursor.execute("SELECT farmer_id FROM farmer WHERE email = %s", (farmer_email,))
         farmer = cursor.fetchone()
 
         if not buyer or not farmer:
@@ -1623,6 +2391,13 @@ def rate_farmer():
 # ----------------------------------------------------
 @app.route('/api/farmer/produce/<farmer_name>', methods=['GET'])
 def get_farmer_inventory(farmer_name):
+    session, auth_error = get_authenticated_session(required_role='farmer')
+    if auth_error:
+        return auth_error
+
+    if farmer_name != session['user_name']:
+        return jsonify({"error": "Forbidden. You can only access your own inventory."}), 403
+
     conn = get_db_connection()
     if not conn:
         return jsonify({"error": "Database connection failed"}), 500
@@ -1630,8 +2405,8 @@ def get_farmer_inventory(farmer_name):
     try:
         cursor = conn.cursor()
         
-        # Get Farmer ID
-        cursor.execute("SELECT farmer_id FROM farmer WHERE full_name = %s", (farmer_name,))
+        # Get Farmer ID using unique authenticated email.
+        cursor.execute("SELECT farmer_id FROM farmer WHERE email = %s", (session['user_email'],))
         farmer = cursor.fetchone()
         if not farmer:
             return jsonify({"error": "Farmer not found."}), 404
@@ -1663,10 +2438,25 @@ def get_farmer_inventory(farmer_name):
 # ----------------------------------------------------
 @app.route('/api/produce/<int:produce_id>', methods=['DELETE'])
 def delete_produce(produce_id):
+    session, auth_error = get_authenticated_session(required_role='farmer')
+    if auth_error:
+        return auth_error
+
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM produce WHERE produce_id = %s", (produce_id,))
+        cursor.execute("SELECT farmer_id FROM farmer WHERE email = %s", (session['user_email'],))
+        farmer = cursor.fetchone()
+        if not farmer:
+            return jsonify({"error": "Farmer not found."}), 404
+
+        cursor.execute(
+            "DELETE FROM produce WHERE produce_id = %s AND farmer_id = %s",
+            (produce_id, farmer[0])
+        )
+        if cursor.rowcount == 0:
+            conn.rollback()
+            return jsonify({"error": "Produce not found for this account."}), 404
         conn.commit()
         return jsonify({"message": "Produce deleted."}), 200
     except Exception as e:
@@ -1679,6 +2469,10 @@ def delete_produce(produce_id):
 
 @app.route('/api/farmer/update_stock', methods=['POST'])
 def update_stock():
+    session, auth_error = get_authenticated_session(required_role='farmer')
+    if auth_error:
+        return auth_error
+
     data = request.json or {}
     produce_id = data.get('produceId')
     new_stock = data.get('newStock')
@@ -1688,7 +2482,7 @@ def update_stock():
 
     try:
         produce_id = int(produce_id)
-        new_stock = int(new_stock)
+        new_stock = float(new_stock)
         if new_stock < 0:
             return jsonify({"error": "Stock cannot be negative."}), 400
     except (TypeError, ValueError):
@@ -1700,9 +2494,14 @@ def update_stock():
 
     try:
         cursor = conn.cursor()
+        cursor.execute("SELECT farmer_id FROM farmer WHERE email = %s", (session['user_email'],))
+        farmer = cursor.fetchone()
+        if not farmer:
+            return jsonify({"error": "Farmer not found."}), 404
+
         cursor.execute(
-            "UPDATE produce SET stock_quantity = %s WHERE produce_id = %s",
-            (new_stock, produce_id)
+            "UPDATE produce SET stock_quantity = %s WHERE produce_id = %s AND farmer_id = %s",
+            (new_stock, produce_id, farmer[0])
         )
 
         if cursor.rowcount == 0:
@@ -1719,35 +2518,12 @@ def update_stock():
         conn.close()
 
 
-@app.route('/api/complaints', methods=['POST'])
-def submit_complaint():
-    data = request.json
-    user_name = data.get('userName')
-    user_role = data.get('userRole')
-    subject = data.get('subject')
-    description = data.get('description')
-
-    if not all([user_name, user_role, subject, description]):
-        return jsonify({"error": "All fields are required"}), 400
-
-    conn = get_db_connection()
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO complaints (user_name, user_role, subject, description) VALUES (%s, %s, %s, %s)",
-            (user_name, user_role, subject, description)
-        )
-        conn.commit()
-        return jsonify({"message": "Complaint submitted successfully!"}), 201
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    finally:
-        cursor.close()
-        conn.close()
-
-
 @app.route('/api/admin/complaints', methods=['GET'])
 def get_complaints():
+    _admin, auth_error = get_admin_authorization()
+    if auth_error:
+        return auth_error
+
     conn = get_db_connection()
     if not conn:
         return jsonify({"error": "Database connection failed"}), 500
@@ -1775,13 +2551,16 @@ def get_complaints():
 
 @app.route('/api/admin/ratings', methods=['GET'])
 def get_ratings():
+    _admin, auth_error = get_admin_authorization()
+    if auth_error:
+        return auth_error
+
     conn = get_db_connection()
     if not conn:
         return jsonify({"error": "Database connection failed"}), 500
 
     try:
         cursor = conn.cursor()
-        # Join tables to get readable names
         cursor.execute("""
             SELECT f.full_name, b.full_name, r.rating_value, r.created_at
             FROM farmer_ratings r
@@ -1808,6 +2587,10 @@ def get_ratings():
 
 @app.route('/api/admin/payments', methods=['GET'])
 def get_payments():
+    _admin, auth_error = get_admin_authorization()
+    if auth_error:
+        return auth_error
+
     conn = get_db_connection()
     if not conn:
         return jsonify({"error": "Database connection failed"}), 500
@@ -1840,6 +2623,10 @@ def get_payments():
 
 @app.route('/api/admin/report/<report_type>', methods=['GET'])
 def get_admin_report(report_type):
+    _admin, auth_error = get_admin_authorization()
+    if auth_error:
+        return auth_error
+
     conn = get_db_connection()
     if not conn:
         return jsonify({"error": "Database connection failed"}), 500
@@ -1879,6 +2666,10 @@ def get_admin_report(report_type):
 
 @app.route('/api/admin/audit', methods=['GET'])
 def get_audit_logs():
+    _admin, auth_error = get_admin_authorization()
+    if auth_error:
+        return auth_error
+
     conn = get_db_connection()
     if not conn:
         return jsonify({"error": "Database connection failed"}), 500
@@ -1908,6 +2699,233 @@ def get_audit_logs():
     finally:
         cursor.close()
         conn.close()
+
+
+# ----------------------------------------------------
+# FARMER WALLET ROUTES
+# ----------------------------------------------------
+@app.route('/api/farmer/wallet/<farmer_name>', methods=['GET'])
+def get_farmer_wallet(farmer_name):
+    """
+    Return wallet summary for the authenticated farmer.
+
+    Security model:
+    - Route requires farmer session token.
+    - URL farmer_name must match token user_name (defense-in-depth).
+    - DB lookup still uses session user_email for unique identity resolution.
+
+    Response:
+    - current numeric balance
+    - latest 20 wallet transactions (newest first)
+    """
+    session, auth_error = get_authenticated_session(required_role='farmer')
+    if auth_error:
+        return auth_error
+
+    if farmer_name != session['user_name']:
+        return jsonify({"error": "Forbidden. You can only access your own wallet."}), 403
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+    cursor = None
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT farmer_id FROM farmer WHERE email = %s", (session['user_email'],))
+        farmer = cursor.fetchone()
+        if not farmer:
+            return jsonify({"error": "Farmer not found."}), 404
+        farmer_id = farmer[0]
+
+        # Get balance
+        cursor.execute("""
+            SELECT COALESCE(balance, 0.00) FROM farmer_wallet WHERE farmer_id = %s
+        """, (farmer_id,))
+        row = cursor.fetchone()
+        balance = float(row[0]) if row else 0.00
+
+        # Get last 20 transactions
+        cursor.execute("""
+            SELECT type, amount, reference, status, description,
+                   TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI') as date
+            FROM wallet_transactions
+            WHERE farmer_id = %s
+            ORDER BY created_at DESC
+            LIMIT 20
+        """, (farmer_id,))
+
+        transactions = [{
+            "type":        r[0],
+            "amount":      float(r[1]),
+            "reference":   r[2],
+            "status":      r[3],
+            "description": r[4],
+            "date":        r[5]
+        } for r in cursor.fetchall()]
+
+        return jsonify({"balance": balance, "transactions": transactions}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        conn.close()
+
+
+@app.route('/api/farmer/wallet/withdraw', methods=['POST'])
+def farmer_withdraw():
+    """
+    Farmer requests a withdrawal to their M-Pesa.
+    Uses Daraja B2C (Business to Customer) API.
+
+    Transaction safety strategy:
+    1) Validate and normalize user input.
+    2) Lock wallet row (FOR UPDATE) to prevent race-condition double spending.
+    3) Deduct balance and create Pending wallet transaction.
+    4) Attempt B2C payout.
+    5) If B2C succeeds -> mark transaction Completed with conversation ref.
+    6) If B2C fails -> restore balance and mark transaction Failed.
+
+    This guarantees the wallet balance is never permanently reduced when the
+    payout provider call fails.
+    """
+    session, auth_error = get_authenticated_session(required_role='farmer')
+    if auth_error:
+        return auth_error
+
+    data = request.json or {}
+    farmer_name = (data.get('farmerName') or '').strip()
+    raw_phone = (data.get('phoneNumber') or '').strip()
+    amount = data.get('amount')
+
+    if farmer_name and farmer_name != session['user_name']:
+        return jsonify({"error": "Forbidden. You can only withdraw from your own wallet."}), 403
+
+    if not raw_phone or amount is None:
+        return jsonify({"error": "phoneNumber and amount are required."}), 400
+
+    try:
+        amount = float(amount)
+        if amount < 10:
+            return jsonify({"error": "Minimum withdrawal is KSh 10."}), 400
+        amount = int(amount)          # B2C requires whole number
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid amount."}), 400
+
+    # Normalise phone to 254XXXXXXXXX
+    phone = raw_phone.lstrip('+').lstrip('0')
+    if not phone.startswith('254'):
+        phone = '254' + phone
+    if len(phone) != 12 or not phone.isdigit():
+        return jsonify({"error": "Enter a valid Kenyan phone number."}), 400
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    cursor = None
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT farmer_id FROM farmer WHERE email = %s", (session['user_email'],))
+        farmer = cursor.fetchone()
+        if not farmer:
+            return jsonify({"error": "Farmer not found."}), 404
+        farmer_id = farmer[0]
+
+        # Check balance — lock the row to prevent double-spend
+        cursor.execute("""
+            SELECT balance FROM farmer_wallet
+            WHERE farmer_id = %s FOR UPDATE
+        """, (farmer_id,))
+        wallet = cursor.fetchone()
+
+        if not wallet or float(wallet[0]) < amount:
+            return jsonify({"error": f"Insufficient balance. Current balance: KSh {wallet[0] if wallet else 0}"}), 400
+
+        # Deduct balance immediately (mark as Pending until B2C confirms)
+        cursor.execute("""
+            UPDATE farmer_wallet
+            SET balance = balance - %s, updated_at = CURRENT_TIMESTAMP
+            WHERE farmer_id = %s
+        """, (amount, farmer_id))
+
+        # Record a pending withdrawal transaction
+        cursor.execute("""
+            INSERT INTO wallet_transactions
+                (farmer_id, type, amount, status, description)
+            VALUES (%s, 'withdrawal', %s, 'Pending', %s)
+            RETURNING txn_id
+        """, (farmer_id, amount, f"Withdrawal to {raw_phone}"))
+        txn_id = cursor.fetchone()[0]
+
+        conn.commit()
+
+        # Fire B2C payment to farmer's phone
+        try:
+            from mpesa import initiate_b2c_payment
+            b2c_response = initiate_b2c_payment(
+                phone=phone,
+                amount=amount,
+                remarks=f"Mkulima Withdrawal #{txn_id}"
+            )
+            conversation_id = b2c_response.get("ConversationID", "")
+
+            # Update transaction with B2C reference
+            cursor.execute("""
+                UPDATE wallet_transactions
+                SET reference = %s, status = 'Completed'
+                WHERE txn_id = %s
+            """, (conversation_id, txn_id))
+            conn.commit()
+
+            return jsonify({
+                "message": f"KSh {amount} sent to {raw_phone} successfully.",
+                "conversationId": conversation_id
+            }), 200
+
+        except Exception as b2c_error:
+            # B2C failed — reverse the balance deduction
+            cursor.execute("""
+                UPDATE farmer_wallet
+                SET balance = balance + %s, updated_at = CURRENT_TIMESTAMP
+                WHERE farmer_id = %s
+            """, (amount, farmer_id))
+            cursor.execute("""
+                UPDATE wallet_transactions SET status = 'Failed'
+                WHERE txn_id = %s
+            """, (txn_id,))
+            conn.commit()
+            return jsonify({
+                "error": "Withdrawal failed. Your balance has been restored.",
+                "detail": str(b2c_error)
+            }), 502
+
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        conn.close()
+
+
+@app.route('/api/mpesa/b2c/result', methods=['POST'])
+def mpesa_b2c_result():
+    """Receives asynchronous B2C result callback from Daraja."""
+    payload = request.get_json(silent=True) or {}
+    print(f"B2C result callback received: {payload}")
+    return jsonify({"ResultCode": 0, "ResultDesc": "Accepted"}), 200
+
+
+@app.route('/api/mpesa/b2c/timeout', methods=['POST'])
+def mpesa_b2c_timeout():
+    """Receives asynchronous B2C timeout callback from Daraja."""
+    payload = request.get_json(silent=True) or {}
+    print(f"B2C timeout callback received: {payload}")
+    return jsonify({"ResultCode": 0, "ResultDesc": "Accepted"}), 200
 
 # ----------------------------------------------------
 # START THE SERVER

@@ -169,6 +169,7 @@
         <a href="dashboard.html" class="active">Dashboard Overview</a>
         <a href="my-produce.html">My Produce</a>
         <a href="orders.html">Orders &amp; Sales</a>
+        <a href="wallet.html">My Wallet</a>
         <a href="../complaints.html" class="support-link">Need Help? Submit Complaint</a>
         <a href="../index.html" class="logout">Log Out</a>
     </div>
@@ -200,9 +201,15 @@
     </div>
 
     <script>
+        function getAuthHeaders() {
+            const token = localStorage.getItem('sessionToken');
+            return token ? { 'Authorization': `Bearer ${token}` } : {};
+        }
+
         document.addEventListener('DOMContentLoaded', async () => {
             const farmerName = localStorage.getItem('currentFarmer');
-            if (!farmerName) {
+            const token = localStorage.getItem('sessionToken');
+            if (!farmerName || !token) {
                 alert('You must log in to access the dashboard.');
                 window.location.href = '../index.html';
                 return;
@@ -211,7 +218,9 @@
             document.getElementById('farmer-greeting').textContent = `Welcome back, ${farmerName}!`;
 
             try {
-                const response = await fetch(`http://localhost:5000/api/farmer/stats/${farmerName}`);
+                const response = await fetch(`http://localhost:5000/api/farmer/stats/${farmerName}`, {
+                    headers: getAuthHeaders()
+                });
                 const stats = await response.json();
                 if (response.ok) {
                     document.getElementById('stat-earnings').textContent = `KSh ${stats.totalEarnings.toLocaleString()}`;

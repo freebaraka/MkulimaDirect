@@ -140,6 +140,10 @@
         async function handleLogin(event) {
             event.preventDefault();
 
+            localStorage.removeItem('sessionToken');
+            localStorage.removeItem('currentFarmer');
+            localStorage.removeItem('currentBuyer');
+
             const name = document.getElementById('name').value;
             const password = document.getElementById('password').value;
 
@@ -200,8 +204,17 @@
                 }
 
                 // LOGIN SUCCESSFUL! Save identity details and route to dashboard
-                localStorage.setItem('currentFarmer', name);
-                localStorage.setItem('currentBuyer', name);
+                localStorage.setItem('sessionToken', verifyResult.token || '');
+                localStorage.setItem('currentUserName', verifyResult.userName || name);
+                localStorage.setItem('currentRole', verifyResult.role || '');
+
+                if (verifyResult.role === 'farmer') {
+                    localStorage.setItem('currentFarmer', verifyResult.userName || name);
+                    localStorage.removeItem('currentBuyer');
+                } else {
+                    localStorage.setItem('currentBuyer', verifyResult.userName || name);
+                    localStorage.removeItem('currentFarmer');
+                }
 
                 if (verifyResult.role === 'farmer') {
                     window.location.href = '../farmer/dashboard.html';

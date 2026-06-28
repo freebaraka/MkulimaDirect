@@ -112,18 +112,27 @@
     </div>
 
     <script>
+    function getAuthHeaders(includeJson = false) {
+        const token = localStorage.getItem('sessionToken');
+        const headers = {};
+        if (includeJson) {
+            headers['Content-Type'] = 'application/json';
+        }
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+        return headers;
+    }
+
     async function submitComplaint() {
-        const currentFarmer = localStorage.getItem('currentFarmer');
-        const currentBuyer = localStorage.getItem('currentBuyer');
+        const token = localStorage.getItem('sessionToken');
 
         const data = {
-            userName: currentFarmer || currentBuyer,
-            userRole: currentFarmer ? 'farmer' : 'buyer',
             subject: document.getElementById('subject').value,
             description: document.getElementById('description').value
         };
 
-        if (!data.userName) {
+        if (!token) {
             alert('Could not identify your account. Please log in again.');
             return;
         }
@@ -131,7 +140,7 @@
         try {
             const response = await fetch('http://localhost:5000/api/complaints', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders(true),
                 body: JSON.stringify(data)
             });
 
