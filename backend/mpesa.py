@@ -75,7 +75,6 @@ def initiate_b2c_payment(phone: str, amount: int, remarks: str = 'Mkulima Payout
     Returns:
     - Daraja JSON response dict (contains ConversationID/ResponseDescription)
     """
-    """
     if not MPESA_B2C_INITIATOR or not MPESA_B2C_CREDENTIAL:
         raise ValueError(
             'B2C is not configured. Set MPESA_B2C_INITIATOR_NAME and '

@@ -87,6 +87,61 @@
             border: none; border-radius: 4px; font-weight: bold; font-size: 1.1rem; cursor: pointer;
         }
         .btn-checkout:hover { opacity: 0.9; }
+
+        /* ── M-Pesa Modal ── */
+        .modal-overlay {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,0.55); z-index: 1000;
+            align-items: center; justify-content: center;
+        }
+        .modal-overlay.open { display: flex; }
+        .modal {
+            background: #fff; border-radius: 8px; padding: 32px 28px;
+            width: 100%; max-width: 420px; box-shadow: 0 8px 30px rgba(0,0,0,0.18);
+            position: relative;
+        }
+        .modal h2 {
+            margin: 0 0 6px; color: var(--primary-color); font-size: 1.3rem;
+            display: flex; align-items: center; gap: 10px;
+        }
+        .modal h2 .mpesa-logo {
+            font-size: 1.5rem;
+        }
+        .modal p.subtitle { margin: 0 0 24px; color: #666; font-size: 0.95rem; }
+        .modal label { display: block; font-weight: bold; margin-bottom: 5px; font-size: 0.9rem; }
+        .modal input, .modal textarea {
+            width: 100%; box-sizing: border-box;
+            padding: 10px 12px; border: 1px solid var(--border-color);
+            border-radius: 4px; font-size: 1rem; margin-bottom: 16px;
+        }
+        .modal textarea { resize: vertical; min-height: 70px; }
+        .modal .btn-pay {
+            width: 100%; padding: 13px; background: var(--primary-color);
+            color: #fff; border: none; border-radius: 5px; font-size: 1.05rem;
+            font-weight: bold; cursor: pointer; letter-spacing: 0.3px;
+        }
+        .modal .btn-pay:hover { opacity: 0.88; }
+        .modal .btn-pay:disabled { opacity: 0.55; cursor: not-allowed; }
+        .modal .btn-cancel {
+            width: 100%; padding: 10px; margin-top: 10px;
+            background: transparent; border: 1px solid #ccc;
+            border-radius: 5px; cursor: pointer; font-size: 0.95rem; color: #555;
+        }
+        .modal .btn-cancel:hover { background: #f5f5f5; }
+
+        /* Status states inside the modal */
+        .status-box {
+            display: none; text-align: center; padding: 10px 0 4px;
+        }
+        .status-box.show { display: block; }
+        .status-box .spinner {
+            width: 40px; height: 40px; border: 4px solid #e0e0e0;
+            border-top-color: var(--primary-color); border-radius: 50%;
+            animation: spin 0.9s linear infinite; margin: 0 auto 12px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .status-box .status-msg { font-size: 1rem; color: #333; margin-bottom: 6px; }
+        .status-box .status-hint { font-size: 0.85rem; color: #888; }
     </style>
 </head>
 <body>
@@ -111,7 +166,63 @@
         </div>
     </div>
 
+    <!-- ── M-Pesa Payment Modal ── -->
+    <div class="modal-overlay" id="mpesa-modal">
+        <div class="modal">
+            <h2><span class="mpesa-logo">📱</span> Pay with M-Pesa</h2>
+            <p class="subtitle">Enter your details and an STK Push will be sent to your phone.</p>
+
+            <div id="modal-form">
+                <label for="mp-phone">M-Pesa Phone Number</label>
+                <input type="tel" id="mp-phone" placeholder="e.g. 0712345678" maxlength="13">
+
+                <label for="mp-address">Delivery Address</label>
+                <textarea id="mp-address" placeholder="e.g. Westlands, Nairobi — near KCB Bank"></textarea>
+
+                <div id="modal-error" style="color:#c0392b; font-size:0.9rem; margin-bottom:12px; display:none;"></div>
+
+                <button class="btn-pay" id="btn-send-stk" onclick="sendStkPush()">
+                    Send STK Push — KSh <span id="modal-total">0</span>
+                </button>
+                <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+            </div>
+
+            <!-- Waiting for PIN state -->
+            <div class="status-box" id="status-waiting">
+                <div class="spinner"></div>
+                <div class="status-msg">Waiting for M-Pesa PIN...</div>
+                <div class="status-hint">Check your phone and enter your M-Pesa PIN to complete payment.</div>
+            </div>
+
+            <!-- Success state -->
+            <div class="status-box" id="status-success">
+                <div style="font-size:3rem; margin-bottom:10px;">✅</div>
+                <div class="status-msg" style="font-weight:bold; color:#2E8B57; font-size:1.1rem;">Payment Confirmed!</div>
+                <div class="status-hint" id="success-detail"></div>
+                <button class="btn-pay" style="margin-top:20px;" onclick="window.location.href='order-history.html'">
+                    View My Orders
+                </button>
+            </div>
+
+            <!-- Failed state -->
+            <div class="status-box" id="status-failed">
+                <div style="font-size:3rem; margin-bottom:10px;">❌</div>
+                <div class="status-msg" style="font-weight:bold; color:#c0392b;">Payment Failed</div>
+                <div class="status-hint" id="failed-detail">The payment was cancelled or timed out.</div>
+                <button class="btn-pay" style="margin-top:20px; background:#c0392b;" onclick="resetModal()">
+                    Try Again
+                </button>
+                <button class="btn-cancel" onclick="closeModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
     <script>
+        const API = 'http://localhost:5000';
+        let currentBuyerName = null;
+        let currentGrandTotal = 0;
+        let activeOrderId = null;
+
         function getAuthHeaders(includeJson = false) {
             const token = localStorage.getItem('sessionToken');
             const headers = {};
@@ -125,39 +236,39 @@
         }
 
         document.addEventListener('DOMContentLoaded', async () => {
-            const buyerName = localStorage.getItem('currentBuyer');
+            currentBuyerName = localStorage.getItem('currentBuyer');
             const token = localStorage.getItem('sessionToken');
 
-            if (!buyerName || !token) {
+            if (!currentBuyerName || !token) {
                 alert('You must log in to access your cart.');
                 window.location.href = '../index.html';
                 return;
             }
 
-            document.getElementById('buyer-greeting').textContent = `Buyer: ${buyerName}`;
-            fetchCart(buyerName);
+            document.getElementById('buyer-greeting').textContent = `Buyer: ${currentBuyerName}`;
+            fetchCart(currentBuyerName);
         });
 
         async function fetchCart(buyerName) {
             const container = document.getElementById('cart-container');
-
             try {
-                const response = await fetch(`http://localhost:5000/api/cart/${buyerName}`, {
+                const response = await fetch(`${API}/api/cart/${buyerName}`, {
                     headers: getAuthHeaders()
                 });
                 const data = await response.json();
 
                 if (!response.ok) {
-                    container.innerHTML = `<p style="color: red;">${data.error}</p>`;
+                    container.innerHTML = `<p style="color:red;">${data.error}</p>`;
                     return;
                 }
 
                 if (data.items.length === 0) {
-                    container.innerHTML = '<p>Your cart is currently empty. <a href="dashboard.html" style="color: #2E8B57;">Go to Marketplace</a></p>';
+                    container.innerHTML = '<p>Your cart is currently empty. <a href="dashboard.html" style="color:#2E8B57;">Go to Marketplace</a></p>';
                     return;
                 }
 
-                // Build the table
+                currentGrandTotal = data.grandTotal;
+
                 let html = `
                     <table>
                         <thead>
@@ -175,13 +286,13 @@
                 data.items.forEach(item => {
                     html += `
                         <tr id="cart-row-${item.cartId}">
-                            <td style="font-weight: bold;">${item.name}</td>
+                            <td style="font-weight:bold;">${item.name}</td>
                             <td>KSh ${item.price} / ${item.unit}</td>
                             <td>
                                 <input type="number" value="${item.quantity}" min="1"
                                        onchange="updateQuantity(${item.produceId}, this.value)">
                             </td>
-                            <td style="font-weight: bold; color: #2E8B57;">KSh ${item.subtotal}</td>
+                            <td style="font-weight:bold; color:#2E8B57;">KSh ${item.subtotal}</td>
                             <td><button class="btn-remove" onclick="removeItem(${item.cartId}, '${buyerName}')">Remove</button></td>
                         </tr>
                     `;
@@ -191,30 +302,29 @@
                         </tbody>
                     </table>
                     <div class="checkout-box">
-                        <h2>Grand Total: <span style="color: #2E8B57;">KSh ${data.grandTotal}</span></h2>
-                        <button class="btn-checkout" onclick="processCheckout('${buyerName}')">Confirm & Pay</button>
+                        <h2>Grand Total: <span style="color:#2E8B57;">KSh ${data.grandTotal}</span></h2>
+                        <button class="btn-checkout" onclick="openModal()">
+                            Pay with M-Pesa 📱
+                        </button>
                     </div>
                 `;
 
                 container.innerHTML = html;
 
             } catch (error) {
-                console.error('Error:', error);
-                container.innerHTML = '<p style="color: red;">Failed to connect to the server.</p>';
+                container.innerHTML = '<p style="color:red;">Failed to connect to the server.</p>';
             }
         }
 
         async function removeItem(cartId, buyerName) {
             if (!confirm("Remove this item from your cart?")) return;
-
             try {
-                const response = await fetch(`http://localhost:5000/api/cart/${cartId}`, {
+                const response = await fetch(`${API}/api/cart/${cartId}`, {
                     method: 'DELETE',
                     headers: getAuthHeaders()
                 });
-                
+
                 if (response.ok) {
-                    // Refresh the cart to update the grand total
                     fetchCart(buyerName);
                 } else {
                     alert("Failed to remove item.");
@@ -225,97 +335,127 @@
         }
 
         async function updateQuantity(produceId, newQuantity) {
-            const buyerName = localStorage.getItem('currentBuyer');
-            const response = await fetch('http://localhost:5000/api/cart/update', {
+            const response = await fetch(`${API}/api/cart/update`, {
                 method: 'POST',
                 headers: getAuthHeaders(true),
-                body: JSON.stringify({ buyerName, produceId, newQuantity })
+                body: JSON.stringify({ buyerName: currentBuyerName, produceId, newQuantity })
             });
-
-            if (response.ok) {
-                location.reload();
-            }
+            if (response.ok) location.reload();
         }
 
-        async function processCheckout(buyerName) {
-            if (!confirm("Are you ready to place this order?")) return;
+        // ── Modal helpers ──────────────────────────────────────────────
 
-            const deliveryAddress = prompt('Please enter your delivery address:');
-            const phoneNumber = prompt('Please enter your phone number:');
+        function openModal() {
+            document.getElementById('modal-total').textContent = currentGrandTotal;
+            document.getElementById('mpesa-modal').classList.add('open');
+        }
 
-            if (!deliveryAddress || !phoneNumber) {
-                alert('Delivery address and phone number are required to complete your order.');
+        function closeModal() {
+            document.getElementById('mpesa-modal').classList.remove('open');
+            resetModal();
+        }
+
+        function resetModal() {
+            showSection('modal-form');
+            document.getElementById('modal-error').style.display = 'none';
+            document.getElementById('btn-send-stk').disabled = false;
+            document.getElementById('btn-send-stk').textContent =
+                `Send STK Push — KSh ${currentGrandTotal}`;
+        }
+
+        function showSection(id) {
+            ['modal-form', 'status-waiting', 'status-success', 'status-failed'].forEach(s => {
+                const el = document.getElementById(s);
+                if (s === id) {
+                    // modal-form is a div, status boxes use the .status-box / .show pattern
+                    el.style.display = '';
+                    el.classList.add('show');
+                } else {
+                    el.style.display = 'none';
+                    el.classList.remove('show');
+                }
+            });
+        }
+
+        function showModalError(msg) {
+            const err = document.getElementById('modal-error');
+            err.textContent = msg;
+            err.style.display = 'block';
+        }
+
+        // ── STK Push flow ──────────────────────────────────────────────
+
+        async function sendStkPush() {
+            const phone   = document.getElementById('mp-phone').value.trim();
+            const address = document.getElementById('mp-address').value.trim();
+
+            if (!phone || !address) {
+                showModalError('Please fill in both your phone number and delivery address.');
                 return;
             }
 
-            try {
-                // Change the button text to show it's working
-                const btn = document.querySelector('.btn-checkout');
-                btn.textContent = "Processing...";
-                btn.disabled = true;
+            const btn = document.getElementById('btn-send-stk');
+            btn.disabled = true;
+            btn.textContent = 'Sending...';
+            document.getElementById('modal-error').style.display = 'none';
 
-                const response = await fetch('http://localhost:5000/api/checkout', {
+            try {
+                const checkoutRes = await fetch(`${API}/api/checkout`, {
                     method: 'POST',
                     headers: getAuthHeaders(true),
                     body: JSON.stringify({
-                        buyerName: buyerName,
-                        deliveryAddress,
-                        phoneNumber
+                        buyerName:       currentBuyerName,
+                        phoneNumber:     phone,
+                        deliveryAddress: address
                     })
                 });
 
-                let result = {};
-                try {
-                    result = await response.json();
-                } catch (_e) {
-                    result = {};
-                }
-
-                console.log('Server response:', result);
-
-                if (response.ok) {
-                    let paymentNotice = '';
-
-                    if (result.orderId) {
-                        try {
-                            const mpesaResponse = await fetch('http://localhost:5000/api/mpesa-pay', {
-                                method: 'POST',
-                                headers: getAuthHeaders(true),
-                                body: JSON.stringify({
-                                    orderId: result.orderId,
-                                    phoneNumber
-                                })
-                            });
-
-                            const mpesaResult = await mpesaResponse.json().catch(() => ({}));
-                            if (mpesaResponse.ok) {
-                                paymentNotice = `\n\nM-Pesa Prompt Sent. CheckoutRequestID: ${mpesaResult.checkoutRequestID || 'N/A'}`;
-                                if (mpesaResult.customerMessage) {
-                                    paymentNotice += `\n${mpesaResult.customerMessage}`;
-                                }
-                            } else {
-                                paymentNotice = `\n\nOrder placed, but M-Pesa prompt failed: ${mpesaResult.error || 'Unknown error.'}`;
-                            }
-                        } catch (_mpesaError) {
-                            paymentNotice = '\n\nOrder placed, but could not reach M-Pesa payment endpoint.';
-                        }
-                    }
-
-                    if (result.message) {
-                        alert("🎉 " + result.message + paymentNotice);
-                    } else {
-                        alert('Order processed, but received an unexpected response from the server.' + paymentNotice);
-                    }
-                    // Refresh the cart (it should now be empty!)
-                    fetchCart(buyerName);
-                } else {
-                    alert("Error: " + (result.error || result.message || 'Checkout failed.'));
-                    btn.textContent = "Confirm & Pay";
+                const checkoutData = await checkoutRes.json();
+                if (!checkoutRes.ok) {
+                    showModalError(checkoutData.error || 'Checkout failed. Please try again.');
                     btn.disabled = false;
+                    btn.textContent = `Send STK Push — KSh ${currentGrandTotal}`;
+                    return;
                 }
-            } catch (error) {
-                console.error("Checkout error:", error);
-                alert("Cannot connect to the server to process checkout.");
+
+                activeOrderId = checkoutData.orderId;
+                if (!activeOrderId) {
+                    showModalError('Order was created, but order id is missing. Please check order history.');
+                    btn.disabled = false;
+                    btn.textContent = `Send STK Push — KSh ${currentGrandTotal}`;
+                    return;
+                }
+
+                const mpesaRes = await fetch(`${API}/api/mpesa-pay`, {
+                    method: 'POST',
+                    headers: getAuthHeaders(true),
+                    body: JSON.stringify({
+                        orderId: activeOrderId,
+                        phoneNumber: phone
+                    })
+                });
+
+                const mpesaData = await mpesaRes.json();
+                if (!mpesaRes.ok) {
+                    showModalError(
+                        (mpesaData.error || 'Order placed, but failed to initiate M-Pesa prompt.') +
+                        ' You can retry payment from order history.'
+                    );
+                    btn.disabled = false;
+                    btn.textContent = `Send STK Push — KSh ${currentGrandTotal}`;
+                    fetchCart(currentBuyerName);
+                    return;
+                }
+
+                document.getElementById('success-detail').textContent =
+                    `Order #${activeOrderId} created. STK sent to ${phone}. CheckoutRequestID: ${mpesaData.checkoutRequestID || 'N/A'}.`;
+                showSection('status-success');
+                fetchCart(currentBuyerName);
+
+            } catch (err) {
+                showModalError('Server unreachable. Please check your connection.');
+                btn.disabled = false;
+                btn.textContent = `Send STK Push — KSh ${currentGrandTotal}`;
             }
         }
     </script>

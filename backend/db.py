@@ -1,6 +1,6 @@
 import psycopg2
-from psycopg2 import OperationalError
 import os
+from psycopg2 import OperationalError
 
 
 def _load_env():
@@ -58,4 +58,4 @@ if __name__ == "__main__":
     conn = get_db_connection()
     if conn:
         print("🚀 Connected to the Mkulima Direct database successfully!")
-        conn.close() # Always close the connection when done testing
+        conn.close()
