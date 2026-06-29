@@ -125,6 +125,28 @@
             margin-bottom: 0;
         }
 
+        .card-link {
+            text-decoration: none;
+            color: inherit;
+            flex: 1;
+            min-width: 250px;
+        }
+
+        .card-link .card {
+            transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+            cursor: pointer;
+            height: 100%;
+            box-sizing: border-box;
+        }
+
+        .card-link:hover .card,
+        .card-link:focus .card,
+        .card-link:focus-visible .card {
+            transform: translateY(-2px);
+            border-color: var(--primary-color);
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+        }
+
         /* Simple Footer */
         footer {
             text-align: center;
@@ -153,18 +175,18 @@
     </div>
 
     <div class="features">
-        <div class="card">
-            <h3> For Farmers</h3>
-            <p>List your fresh produce, set your own prices and reach buyers nationwide without the middlemen.</p>
-        </div>
-        <div class="card">
-            <h3> For Buyers</h3>
-            <p>Browse fresh, local crops and purchase directly from the source for the best quality and value.</p>
-        </div>
-        <div class="card">
-            <h3> Market Stats</h3>
-            <p>Track pricing trends, view popular produce and manage your orders in real-time through our dashboard.</p>
-        </div>
+        <a href="auth/login.html" class="card-link" aria-label="Login as Farmer">
+            <div class="card">
+                <h3> For Farmers</h3>
+                <p>List your fresh produce, set your own prices and reach buyers nationwide without the middlemen.</p>
+            </div>
+        </a>
+        <a href="auth/login.html" class="card-link" aria-label="Login as Buyer">
+            <div class="card">
+                <h3> For Buyers</h3>
+                <p>Browse fresh, local crops and purchase directly from the source for the best quality and value.</p>
+            </div>
+        </a>
     </div>
 
     <footer>

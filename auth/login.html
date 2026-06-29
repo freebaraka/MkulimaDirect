@@ -71,6 +71,25 @@
             opacity: 0.9; 
         }
 
+        .link-btn {
+            width: auto;
+            margin-top: 10px;
+            padding: 0;
+            background: none;
+            color: var(--primary-color);
+            border: none;
+            font-size: 0.9rem;
+            font-weight: 600;
+            text-decoration: underline;
+            cursor: pointer;
+        }
+
+        .link-btn:disabled {
+            color: #8aa998;
+            cursor: not-allowed;
+            text-decoration: none;
+        }
+
         #error-message {
             color: #d9534f;
             margin-top: 10px;
@@ -95,6 +114,13 @@
         #otpSection p {
             margin: 0 0 10px;
         }
+
+        #otpStatus {
+            margin-top: 8px;
+            font-size: 0.85rem;
+            color: #666;
+            min-height: 1.2em;
+        }
     </style>
 </head>
 <body>
@@ -117,6 +143,8 @@
             <p>An email with a 6-digit code has been sent to your registered address.</p>
             <input type="text" id="loginOtp" placeholder="Enter Verification Code" maxlength="6">
             <button type="button" id="verifyOtpBtn">Verify &amp; Login</button>
+            <button type="button" id="resendOtpBtn" class="link-btn">Send another verification code</button>
+            <p id="otpStatus"></p>
         </div>
 
         <div class="links">
@@ -130,12 +158,65 @@
         const errorMessage = document.getElementById('error-message');
         const otpSection = document.getElementById('otpSection');
         const verifyOtpBtn = document.getElementById('verifyOtpBtn');
+        const resendOtpBtn = document.getElementById('resendOtpBtn');
+        const otpStatus = document.getElementById('otpStatus');
 
         // Global variable to keep track of the email during the 2-step process
         let currentLoginEmail = '';
+        let currentLoginName = '';
+        let currentLoginPassword = '';
+        let resendCooldownTimer = null;
+        const RESEND_COOLDOWN_SECONDS = 30;
 
         loginForm.addEventListener('submit', handleLogin);
         verifyOtpBtn.addEventListener('click', verifyLoginOtp);
+        resendOtpBtn.addEventListener('click', resendLoginOtp);
+
+        function setOtpStatus(message, isError = false) {
+            otpStatus.textContent = message;
+            otpStatus.style.color = isError ? '#d9534f' : '#666';
+        }
+
+        function startResendCooldown(seconds = RESEND_COOLDOWN_SECONDS) {
+            let remaining = seconds;
+            resendOtpBtn.disabled = true;
+            resendOtpBtn.textContent = `Resend available in ${remaining}s`;
+
+            if (resendCooldownTimer) {
+                clearInterval(resendCooldownTimer);
+            }
+
+            resendCooldownTimer = setInterval(() => {
+                remaining -= 1;
+                if (remaining <= 0) {
+                    clearInterval(resendCooldownTimer);
+                    resendCooldownTimer = null;
+                    resendOtpBtn.disabled = false;
+                    resendOtpBtn.textContent = 'Send another verification code';
+                    return;
+                }
+                resendOtpBtn.textContent = `Resend available in ${remaining}s`;
+            }, 1000);
+        }
+
+        async function requestLoginOtp(name, password) {
+            const response = await fetch('http://localhost:5000/api/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, password })
+            });
+
+            const result = await response.json();
+            if (!response.ok) {
+                throw new Error(result.error || 'Could not send verification code.');
+            }
+
+            if (!result.requireOtp || !result.email) {
+                throw new Error('Login flow error: verification step was not initialized.');
+            }
+
+            return result;
+        }
 
         async function handleLogin(event) {
             event.preventDefault();
@@ -147,22 +228,14 @@
             const name = document.getElementById('name').value;
             const password = document.getElementById('password').value;
 
+            currentLoginName = name;
+            currentLoginPassword = password;
+
             errorMessage.style.display = 'none';
 
             try {
                 // STEP 1: Verify Password and Trigger Email
-                const response = await fetch('http://localhost:5000/api/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, password })
-                });
-
-                const result = await response.json();
-
-                if (!response.ok) {
-                    alert(result.error);
-                    return;
-                }
+                const result = await requestLoginOtp(name, password);
 
                 // STEP 2: If backend requires OTP, swap the forms seamlessly
                 if (result.requireOtp) {
@@ -171,11 +244,38 @@
                     // Hide the password form and show the OTP input block
                     document.getElementById('loginForm').style.display = 'none';
                     document.getElementById('otpSection').style.display = 'block';
+                    setOtpStatus('Verification code sent. Check your email inbox.');
+                    startResendCooldown();
                 }
 
             } catch (error) {
                 console.error('Login Error:', error);
-                alert('Could not connect to the server.');
+                alert(error.message || 'Could not connect to the server.');
+            }
+        }
+
+        async function resendLoginOtp() {
+            if (resendOtpBtn.disabled) return;
+
+            if (!currentLoginName || !currentLoginPassword) {
+                setOtpStatus('Please restart login to request another code.', true);
+                return;
+            }
+
+            try {
+                resendOtpBtn.disabled = true;
+                resendOtpBtn.textContent = 'Sending...';
+                setOtpStatus('Requesting a new verification code...');
+
+                const result = await requestLoginOtp(currentLoginName, currentLoginPassword);
+                currentLoginEmail = result.email;
+                setOtpStatus('New verification code sent. Please check your email.');
+                startResendCooldown();
+            } catch (error) {
+                console.error('Resend OTP Error:', error);
+                setOtpStatus(error.message || 'Failed to resend verification code.', true);
+                resendOtpBtn.disabled = false;
+                resendOtpBtn.textContent = 'Send another verification code';
             }
         }
 

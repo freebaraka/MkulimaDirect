@@ -104,9 +104,7 @@
             margin: 0 0 6px; color: var(--primary-color); font-size: 1.3rem;
             display: flex; align-items: center; gap: 10px;
         }
-        .modal h2 .mpesa-logo {
-            font-size: 1.5rem;
-        }
+
         .modal p.subtitle { margin: 0 0 24px; color: #666; font-size: 0.95rem; }
         .modal label { display: block; font-weight: bold; margin-bottom: 5px; font-size: 0.9rem; }
         .modal input, .modal textarea {
@@ -169,7 +167,7 @@
     <!-- ── M-Pesa Payment Modal ── -->
     <div class="modal-overlay" id="mpesa-modal">
         <div class="modal">
-            <h2><span class="mpesa-logo">📱</span> Pay with M-Pesa</h2>
+            <h2> Pay with M-Pesa</h2>
             <p class="subtitle">Enter your details and an STK Push will be sent to your phone.</p>
 
             <div id="modal-form">
@@ -304,7 +302,7 @@
                     <div class="checkout-box">
                         <h2>Grand Total: <span style="color:#2E8B57;">KSh ${data.grandTotal}</span></h2>
                         <button class="btn-checkout" onclick="openModal()">
-                            Pay with M-Pesa 📱
+                            Pay with M-Pesa 
                         </button>
                     </div>
                 `;
