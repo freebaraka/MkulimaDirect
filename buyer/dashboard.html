@@ -154,8 +154,39 @@
             return headers;
         }
 
+        async function handleLogoutClick(event) {
+            event.preventDefault();
+            const redirectTo = event.currentTarget.getAttribute('href') || '../index.html';
+            const userName = localStorage.getItem('currentUserName') || localStorage.getItem('currentBuyer') || '';
+
+            try {
+                if (userName) {
+                    await fetch('http://localhost:5000/api/auth/logout', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ userName })
+                    });
+                }
+            } catch (error) {
+                console.warn('Logout audit update failed:', error);
+            } finally {
+                localStorage.removeItem('sessionToken');
+                localStorage.removeItem('currentFarmer');
+                localStorage.removeItem('currentBuyer');
+                localStorage.removeItem('currentRole');
+                localStorage.removeItem('currentUserName');
+                localStorage.removeItem('isAdmin');
+                window.location.href = redirectTo;
+            }
+        }
+
         // Put this at the very top of your <script> tag
         document.addEventListener('DOMContentLoaded', () => {
+            const logoutLink = document.querySelector('.logout');
+            if (logoutLink) {
+                logoutLink.addEventListener('click', handleLogoutClick);
+            }
+
             // Check if the user is logged in
             const buyerName = localStorage.getItem('currentBuyer');
             const farmerName = localStorage.getItem('currentFarmer');

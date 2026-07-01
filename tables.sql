@@ -146,3 +146,12 @@ CREATE TABLE audit_logs (
     logout_time TIMESTAMP,
     session_duration_minutes INT DEFAULT 0
 );
+
+-- Update the session duration for users who have logged out
+UPDATE audit_logs
+SET logout_time = CURRENT_TIMESTAMP,
+    session_duration_minutes = ROUND((EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - login_time)) / 60.0)::numeric, 2)
+WHERE logout_time IS NULL;
+-- For putting the default admin acc
+INSERT INTO admin (full_name, email, password_hash, role_level) 
+VALUES ('System Admin', 'admin@mkulima.com', 'admin123', 'SuperAdmin');

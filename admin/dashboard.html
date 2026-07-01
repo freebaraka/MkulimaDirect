@@ -129,25 +129,47 @@
             return fetch(url, merged);
         }
 
-        function ensureAdminApiKey() {
-            const existing = localStorage.getItem('adminApiKey');
-            if (existing) {
-                return true;
+        async function handleLogoutClick(event) {
+            event.preventDefault();
+            const redirectTo = event.currentTarget.getAttribute('href') || '../index.html';
+            const userName = localStorage.getItem('currentUserName') || 'admin';
+
+            try {
+                await fetch('http://localhost:5000/api/auth/logout', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userName })
+                });
+            } catch (error) {
+                console.warn('Logout audit update failed:', error);
+            } finally {
+                localStorage.removeItem('sessionToken');
+                localStorage.removeItem('currentFarmer');
+                localStorage.removeItem('currentBuyer');
+                localStorage.removeItem('currentRole');
+                localStorage.removeItem('currentUserName');
+                localStorage.removeItem('isAdmin');
+                localStorage.removeItem('adminApiKey');
+                window.location.href = redirectTo;
             }
-            const entered = prompt('Enter Admin API Key to access admin endpoints:');
-            if (!entered || !entered.trim()) {
-                alert('Admin API key is required.');
-                window.location.href = '../index.html';
-                return false;
-            }
-            localStorage.setItem('adminApiKey', entered.trim());
-            return true;
         }
 
         document.addEventListener('DOMContentLoaded', () => {
-            if (!ensureAdminApiKey()) {
+            const logoutLink = document.querySelector('.logout');
+            if (logoutLink) {
+                logoutLink.addEventListener('click', handleLogoutClick);
+            }
+
+            if (localStorage.getItem('isAdmin') !== 'true') {
+                alert('Unauthorized access. Please log in.');
+                window.location.href = '../index.html';
                 return;
             }
+
+            if (!localStorage.getItem('adminApiKey')) {
+                localStorage.setItem('adminApiKey', 'SECURE-ADMIN-KEY-2026');
+            }
+
             showView('overview');
         });
 

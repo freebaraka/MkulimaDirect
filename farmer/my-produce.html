@@ -174,7 +174,38 @@
             return headers;
         }
 
+        async function handleLogoutClick(event) {
+            event.preventDefault();
+            const redirectTo = event.currentTarget.getAttribute('href') || '../index.html';
+            const userName = localStorage.getItem('currentUserName') || localStorage.getItem('currentFarmer') || '';
+
+            try {
+                if (userName) {
+                    await fetch('http://localhost:5000/api/auth/logout', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ userName })
+                    });
+                }
+            } catch (error) {
+                console.warn('Logout audit update failed:', error);
+            } finally {
+                localStorage.removeItem('sessionToken');
+                localStorage.removeItem('currentFarmer');
+                localStorage.removeItem('currentBuyer');
+                localStorage.removeItem('currentRole');
+                localStorage.removeItem('currentUserName');
+                localStorage.removeItem('isAdmin');
+                window.location.href = redirectTo;
+            }
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
+            const logoutLink = document.querySelector('.logout');
+            if (logoutLink) {
+                logoutLink.addEventListener('click', handleLogoutClick);
+            }
+
             const farmerName = localStorage.getItem('currentFarmer');
             const token = localStorage.getItem('sessionToken');
             if (!farmerName || !token) {

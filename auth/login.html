@@ -224,6 +224,9 @@
             localStorage.removeItem('sessionToken');
             localStorage.removeItem('currentFarmer');
             localStorage.removeItem('currentBuyer');
+            localStorage.removeItem('currentRole');
+            localStorage.removeItem('currentUserName');
+            localStorage.removeItem('isAdmin');
 
             const name = document.getElementById('name').value;
             const password = document.getElementById('password').value;
@@ -234,6 +237,23 @@
             errorMessage.style.display = 'none';
 
             try {
+                // Admin login path: username/password check directly on backend.
+                const adminLoginResponse = await fetch('http://localhost:5000/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: name, password })
+                });
+
+                const adminLoginResult = await adminLoginResponse.json();
+                if (adminLoginResponse.ok && adminLoginResult.role === 'admin') {
+                    localStorage.setItem('isAdmin', 'true');
+                    localStorage.setItem('adminApiKey', adminLoginResult.adminKey || 'SECURE-ADMIN-KEY-2026');
+                    localStorage.setItem('currentRole', 'admin');
+                    localStorage.setItem('currentUserName', 'admin');
+                    window.location.href = '../admin/dashboard.html';
+                    return;
+                }
+
                 // STEP 1: Verify Password and Trigger Email
                 const result = await requestLoginOtp(name, password);
 
