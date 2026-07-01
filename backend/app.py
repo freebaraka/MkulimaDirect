@@ -2201,13 +2201,14 @@ def update_farmer_order_status(farmer_name, order_id):
     requested_status = (data.get('status') or '').strip().lower()
 
     allowed_status_map = {
+        'pending': 'Pending',
         'delivered': 'Delivered',
         'cancelled': 'Cancelled',
         'completed': 'Completed'
     }
 
     if requested_status not in allowed_status_map:
-        return jsonify({"error": "Invalid status. Allowed: delivered, cancelled, completed."}), 400
+        return jsonify({"error": "Invalid status. Allowed: pending, delivered, cancelled, completed."}), 400
 
     conn = get_db_connection()
     if not conn:
@@ -2224,11 +2225,13 @@ def update_farmer_order_status(farmer_name, order_id):
 
         # Ensure this order belongs to at least one produce item owned by the farmer.
         cursor.execute("""
-            SELECT o.order_status
+            SELECT o.order_status,
+                   COALESCE(SUM(od.subtotal), 0) AS farmer_order_amount
             FROM orders o
             JOIN order_details od ON o.order_id = od.order_id
             JOIN produce p ON od.produce_id = p.produce_id
             WHERE o.order_id = %s AND p.farmer_id = %s
+            GROUP BY o.order_status
             LIMIT 1
         """, (order_id, farmer_id))
         order_row = cursor.fetchone()
@@ -2237,10 +2240,33 @@ def update_farmer_order_status(farmer_name, order_id):
             return jsonify({"error": "Order not found for this farmer."}), 404
 
         current_status = (order_row[0] or '').strip().lower()
-        if current_status != 'pending':
-            return jsonify({"error": "Only pending orders can be updated by farmers."}), 409
+        farmer_order_amount = order_row[1] or 0
 
         new_status = allowed_status_map[requested_status]
+
+        # Wallet reconciliation for cancellation:
+        # if status transitions into Cancelled, reverse this farmer's credited earnings.
+        if requested_status == 'cancelled' and current_status != 'cancelled' and farmer_order_amount > 0:
+            cursor.execute("""
+                INSERT INTO farmer_wallet (farmer_id, balance)
+                VALUES (%s, %s)
+                ON CONFLICT (farmer_id)
+                DO UPDATE SET
+                    balance = farmer_wallet.balance - %s,
+                    updated_at = CURRENT_TIMESTAMP
+            """, (farmer_id, 0, farmer_order_amount))
+
+            cursor.execute("""
+                INSERT INTO wallet_transactions
+                    (farmer_id, type, amount, reference, status, description)
+                VALUES (%s, 'debit', %s, %s, 'Completed', %s)
+            """, (
+                farmer_id,
+                farmer_order_amount,
+                f"ORDER-{order_id}",
+                f"Wallet reconciliation for cancelled Order #{order_id}"
+            ))
+
         cursor.execute(
             "UPDATE orders SET order_status = %s WHERE order_id = %s",
             (new_status, order_id)
@@ -2250,6 +2276,75 @@ def update_farmer_order_status(farmer_name, order_id):
         return jsonify({"message": "Order status updated successfully.", "orderId": order_id, "status": new_status}), 200
     except Exception as e:
         conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.route('/api/farmer/wallet/<farmer_name>', methods=['GET'])
+def get_wallet(farmer_name):
+    session, auth_error = get_authenticated_session(required_role='farmer')
+    if auth_error:
+        return auth_error
+
+    if farmer_name != session['user_name']:
+        return jsonify({"error": "Forbidden. You can only access your own wallet."}), 403
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+
+        # Resolve authenticated farmer id via unique session email.
+        cursor.execute("SELECT farmer_id FROM farmer WHERE email = %s", (session['user_email'],))
+        farmer = cursor.fetchone()
+        if not farmer:
+            return jsonify({"error": "Farmer not found."}), 404
+
+        farmer_id = farmer[0]
+
+        # Keep wallet balance aligned with dashboard earnings logic.
+        cursor.execute("""
+            SELECT COALESCE(SUM(od.subtotal), 0)
+            FROM order_details od
+            JOIN produce p ON od.produce_id = p.produce_id
+            JOIN orders o ON od.order_id = o.order_id
+            WHERE p.farmer_id = %s AND o.order_status != 'Cancelled'
+        """, (farmer_id,))
+        earnings_row = cursor.fetchone()
+        balance = float(earnings_row[0]) if earnings_row else 0.0
+
+        # Wallet transactions (most recent first).
+        cursor.execute("""
+            SELECT
+                TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') AS date,
+                type,
+                amount,
+                status,
+                reference,
+                description
+            FROM wallet_transactions
+            WHERE farmer_id = %s
+            ORDER BY created_at DESC
+        """, (farmer_id,))
+
+        transactions = [
+            {
+                "date": r[0],
+                "type": r[1],
+                "amount": str(r[2]),
+                "status": r[3],
+                "reference": r[4],
+                "description": r[5]
+            }
+            for r in cursor.fetchall()
+        ]
+
+        return jsonify({"balance": balance, "transactions": transactions}), 200
+    except Exception as e:
         return jsonify({"error": str(e)}), 500
     finally:
         cursor.close()

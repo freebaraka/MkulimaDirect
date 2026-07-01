@@ -147,6 +147,7 @@
         <a href="dashboard.html">Dashboard Overview</a>
         <a href="my-produce.html">My Produce</a>
         <a href="orders.html" class="active">Orders &amp; Sales</a>
+        <a href="wallet.html">My Wallet</a>
         <a href="../complaints.html" class="support-link">Need Help? Submit Complaint</a>
         <a href="../index.html" class="logout">Log Out</a>
     </div>
@@ -220,9 +221,8 @@
 
                 orders.forEach(order => {
                     const statusClass = `status-${String(order.status || 'pending').toLowerCase()}`;
-                    const isPending = order.status === 'Pending';
                     const statusSelect = `
-                        <select class="status-select" onchange="changeStatus('${order.orderId}', this.value)" ${isPending ? '' : 'disabled'}>
+                        <select class="status-select" onchange="changeStatus('${order.orderId}', this, '${order.status}')">
                             <option value="Pending" ${order.status === 'Pending' ? 'selected' : ''}>Pending</option>
                             <option value="Delivered" ${order.status === 'Delivered' ? 'selected' : ''}>Delivered</option>
                             <option value="Completed" ${order.status === 'Completed' ? 'selected' : ''}>Completed</option>
@@ -256,7 +256,21 @@
             }
         }
 
-        async function changeStatus(orderId, newStatus) {
+        async function changeStatus(orderId, selectEl, currentStatus) {
+            const newStatus = String(selectEl.value || '');
+
+            if (newStatus === currentStatus) {
+                return;
+            }
+
+            if (newStatus === 'Cancelled') {
+                const proceed = confirm('Are you sure you want to cancel this order? This action may trigger a wallet deduction.');
+                if (!proceed) {
+                    selectEl.value = currentStatus;
+                    return;
+                }
+            }
+
             console.log('Updating order', orderId, 'to', newStatus);
 
             try {

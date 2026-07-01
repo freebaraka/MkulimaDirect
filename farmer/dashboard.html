@@ -127,11 +127,21 @@
 
         /* Minimal Stat Card */
         .stat-card {
+            display: block;
+            text-decoration: none;
             background: #ffffff;
             padding: 20px;
             border-radius: 4px;
             border: 1px solid var(--border-color);
             text-align: left;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+            cursor: pointer;
+            border-color: var(--primary-color);
         }
 
         .stat-card h3 { 
@@ -183,20 +193,20 @@
         </div>
 
         <div class="stats-grid">
-            <div class="stat-card">
+            <a href="wallet.html" class="stat-card">
                 <h3 id="stat-earnings">Loading...</h3>
-                <p>Total Earnings</p>
-            </div>
+                <p>Balance</p>
+            </a>
 
-            <div class="stat-card">
+            <a href="my-produce.html" class="stat-card">
                 <h3 id="stat-listings">-</h3>
                 <p>Active Listings</p>
-            </div>
+            </a>
 
-            <div class="stat-card">
+            <a href="orders.html" class="stat-card">
                 <h3 id="stat-orders">-</h3>
                 <p>Pending Orders</p>
-            </div>
+            </a>
         </div>
     </div>
 
