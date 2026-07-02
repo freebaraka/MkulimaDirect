@@ -220,6 +220,7 @@
         let currentBuyerName = null;
         let currentGrandTotal = 0;
         let activeOrderId = null;
+        let hasStockIssues = false;
 
         function getAuthHeaders(includeJson = false) {
             const token = localStorage.getItem('sessionToken');
@@ -297,6 +298,7 @@
                 }
 
                 currentGrandTotal = data.grandTotal;
+                hasStockIssues = false;
 
                 let html = `
                     <table>
@@ -313,13 +315,30 @@
                 `;
 
                 data.items.forEach(item => {
+                    const available = Number(item.availableStock || 0);
+                    const requested = Number(item.quantity || 0);
+                    const isOutOfStock = available <= 0;
+                    const exceedsStock = requested > available;
+                    const hasIssue = isOutOfStock || exceedsStock;
+
+                    if (hasIssue) {
+                        hasStockIssues = true;
+                    }
+
+                    const stockHint = isOutOfStock
+                        ? '<div style="color:#c0392b; font-size:0.85rem; margin-top:6px;">Out of stock. Remove this item to continue.</div>'
+                        : (exceedsStock
+                            ? `<div style="color:#c0392b; font-size:0.85rem; margin-top:6px;">Only ${available} available. Reduce quantity.</div>`
+                            : '');
+
                     html += `
-                        <tr id="cart-row-${item.cartId}">
+                        <tr id="cart-row-${item.cartId}" style="${hasIssue ? 'background:#fff5f5;' : ''}">
                             <td style="font-weight:bold;">${item.name}</td>
                             <td>KSh ${item.price} / ${item.unit}</td>
                             <td>
                                 <input type="number" value="${item.quantity}" min="1"
                                        onchange="updateQuantity(${item.produceId}, this.value)">
+                                ${stockHint}
                             </td>
                             <td style="font-weight:bold; color:#2E8B57;">KSh ${item.subtotal}</td>
                             <td><button class="btn-remove" onclick="removeItem(${item.cartId}, '${buyerName}')">Remove</button></td>
@@ -327,14 +346,17 @@
                     `;
                 });
 
+                const checkoutButton = hasStockIssues
+                    ? `<button class="btn-checkout" disabled style="opacity:0.6; cursor:not-allowed;">Pay with M-Pesa</button>
+                       <p style="color:#c0392b; margin-top:10px; font-size:0.9rem;">Resolve out-of-stock items before checkout.</p>`
+                    : `<button class="btn-checkout" onclick="openModal()">Pay with M-Pesa</button>`;
+
                 html += `
                         </tbody>
                     </table>
                     <div class="checkout-box">
                         <h2>Grand Total: <span style="color:#2E8B57;">KSh ${data.grandTotal}</span></h2>
-                        <button class="btn-checkout" onclick="openModal()">
-                            Pay with M-Pesa 
-                        </button>
+                        ${checkoutButton}
                     </div>
                 `;
 
@@ -369,12 +391,22 @@
                 headers: getAuthHeaders(true),
                 body: JSON.stringify({ buyerName: currentBuyerName, produceId, newQuantity })
             });
-            if (response.ok) location.reload();
+            const result = await response.json();
+            if (response.ok) {
+                location.reload();
+            } else {
+                alert(result.error || 'Could not update quantity.');
+                location.reload();
+            }
         }
 
         // ── Modal helpers ──────────────────────────────────────────────
 
         function openModal() {
+            if (hasStockIssues) {
+                alert('Your cart has out-of-stock items. Remove or adjust them first.');
+                return;
+            }
             document.getElementById('modal-total').textContent = currentGrandTotal;
             document.getElementById('mpesa-modal').classList.add('open');
         }

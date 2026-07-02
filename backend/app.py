@@ -13,6 +13,7 @@ import time
 import smtplib
 from datetime import datetime
 from urllib import request as urlrequest
+from urllib import error as urlerror
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
@@ -40,7 +41,9 @@ def load_local_env_file():
                     key, value = line.split('=', 1)
                     key = key.strip()
                     value = value.strip().strip('"').strip("'")
-                    if key and key not in os.environ:
+                    existing = os.environ.get(key)
+                    # Allow later env files to override blank placeholders.
+                    if key and (existing is None or str(existing).strip() == ''):
                         os.environ[key] = value
         except Exception as e:
             print(f"Warning: could not load .env file {env_path}: {e}")
@@ -158,8 +161,16 @@ def _get_mpesa_access_token():
         method='GET'
     )
 
-    with urlrequest.urlopen(req, timeout=20) as resp:
-        payload = json.loads(resp.read().decode('utf-8'))
+    try:
+        with urlrequest.urlopen(req, timeout=20) as resp:
+            payload = json.loads(resp.read().decode('utf-8'))
+    except urlerror.HTTPError as e:
+        err_body = ''
+        try:
+            err_body = e.read().decode('utf-8', errors='ignore')
+        except Exception:
+            err_body = ''
+        raise RuntimeError(f'M-Pesa token request failed ({e.code}): {err_body or e.reason}')
 
     access_token = payload.get('access_token')
     if not access_token:
@@ -169,8 +180,16 @@ def _get_mpesa_access_token():
 
 
 def _initiate_mpesa_stk_push(phone_number, amount, account_reference, transaction_desc):
-    if not MPESA_SHORTCODE or not MPESA_PASSKEY or not MPESA_CALLBACK_URL:
-        raise RuntimeError('M-Pesa STK settings are not fully configured.')
+    missing = []
+    if not MPESA_SHORTCODE:
+        missing.append('MPESA_SHORTCODE')
+    if not MPESA_PASSKEY:
+        missing.append('MPESA_PASSKEY')
+    if not MPESA_CALLBACK_URL:
+        missing.append('MPESA_CALLBACK_URL')
+
+    if missing:
+        raise RuntimeError('M-Pesa STK settings are not fully configured. Missing: ' + ', '.join(missing))
 
     normalized_phone = _normalize_mpesa_phone(phone_number)
     timestamp = _mpesa_timestamp()
@@ -201,8 +220,16 @@ def _initiate_mpesa_stk_push(phone_number, amount, account_reference, transactio
         method='POST'
     )
 
-    with urlrequest.urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read().decode('utf-8'))
+    try:
+        with urlrequest.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read().decode('utf-8'))
+    except urlerror.HTTPError as e:
+        err_body = ''
+        try:
+            err_body = e.read().decode('utf-8', errors='ignore')
+        except Exception:
+            err_body = ''
+        raise RuntimeError(f'M-Pesa STK request failed ({e.code}): {err_body or e.reason}')
 
 
 def issue_session_token(user_name, role, user_email):
@@ -1578,7 +1605,14 @@ def view_cart(buyer_name):
 
         # 2. Get the cart items linked to this buyer
         query = """
-            SELECT c.cart_id, c.produce_id, p.name, p.price_per_unit, p.unit_type, c.quantity, (p.price_per_unit * c.quantity) as subtotal
+            SELECT c.cart_id,
+                   c.produce_id,
+                   p.name,
+                   p.price_per_unit,
+                   p.unit_type,
+                   c.quantity,
+                   (p.price_per_unit * c.quantity) as subtotal,
+                   COALESCE(p.stock_quantity, 0) as available_stock
             FROM cart c
             JOIN produce p ON c.produce_id = p.produce_id
             WHERE c.buyer_id = %s
@@ -1593,6 +1627,7 @@ def view_cart(buyer_name):
         for item in items:
             subtotal = item[6]
             grand_total += subtotal
+            available_stock = float(item[7] or 0)
             cart_list.append({
                 "cartId": item[0],
                 "produceId": item[1],
@@ -1600,7 +1635,9 @@ def view_cart(buyer_name):
                 "price": item[3],
                 "unit": item[4],
                 "quantity": item[5],
-                "subtotal": subtotal
+                "subtotal": subtotal,
+                "availableStock": available_stock,
+                "inStock": available_stock > 0
             })
 
         return jsonify({"items": cart_list, "grandTotal": grand_total}), 200
@@ -1646,6 +1683,19 @@ def update_cart_quantity():
             return jsonify({"error": "Buyer not found."}), 404
 
         buyer_id = buyer[0]
+
+        cursor.execute("SELECT stock_quantity FROM produce WHERE produce_id = %s", (produce_id,))
+        stock_row = cursor.fetchone()
+        if not stock_row:
+            return jsonify({"error": "Produce item not found."}), 404
+
+        available_stock = float(stock_row[0] or 0)
+        if available_stock <= 0:
+            return jsonify({"error": f"Item #{produce_id} is out of stock."}), 409
+
+        if new_quantity > available_stock:
+            return jsonify({"error": f"Only {available_stock} units are available for item #{produce_id}."}), 409
+
         cursor.execute(
             "UPDATE cart SET quantity = %s WHERE buyer_id = %s AND produce_id = %s",
             (new_quantity, buyer_id, produce_id)
@@ -1799,65 +1849,8 @@ def process_checkout():
         # Save all these steps to the database at the exact same time
         conn.commit()
 
-        receipt_email_failed = False
-
-        # 7. Send SMS alerts to farmers for each produce item in this order
-        for item in cart_items:
-            produce_id, quantity, price = item
-            subtotal = quantity * price
-
-            cursor.execute("""
-                SELECT f.farmer_id, f.full_name, f.email, p.name
-                FROM farmer f
-                JOIN produce p ON f.farmer_id = p.farmer_id
-                WHERE p.produce_id = %s
-            """, (produce_id,))
-            farmer_data = cursor.fetchone()
-
-            if farmer_data:
-                _farmer_id = farmer_data[0]
-                farmer_name = farmer_data[1]
-                farmer_email = farmer_data[2]
-                produce_name = farmer_data[3]
-
-                receipt_info = {
-                    "order_id": order_id,
-                    "buyer_name": buyer_name,
-                    "farmer_name": farmer_name,
-                    "item_name": produce_name,
-                    "quantity": quantity,
-                    "total": subtotal,
-                    "address": delivery_address
-                }
-
-                try:
-                    send_receipt_email(buyer_email, receipt_info, "Buyer")
-                    send_receipt_email(farmer_email, receipt_info, "Farmer")
-                except Exception as e:
-                    # Receipt delivery should not fail checkout completion.
-                    receipt_email_failed = True
-                    print(f"Receipt email failed for order {order_id}: {e}")
-
-                sms_message = (
-                    f"Mkulima Direct: New Order! {buyer_name} ({phone_number}) "
-                    f"has ordered {quantity} of {produce_name}. Deliver to: {delivery_address}."
-                )
-
-                if send_email(farmer_email, "Mkulima Direct New Order Alert", sms_message):
-                    print(f"Email successfully sent to {farmer_email}")
-                else:
-                    print("Email Failed to send")
-
-        if receipt_email_failed:
-            return jsonify({
-                "message": f"Order #{order_id} placed successfully! Total: KSh {grand_total}. Receipt email failed to send.",
-                "orderId": order_id,
-                "paymentId": payment_id,
-                "totalAmount": float(grand_total)
-            }), 201
-
         return jsonify({
-            "message": f"Order #{order_id} placed successfully! Total: KSh {grand_total}. Receipt sent successfully!",
+            "message": f"Order #{order_id} placed successfully! Total: KSh {grand_total}. Complete payment via M-Pesa prompt.",
             "orderId": order_id,
             "paymentId": payment_id,
             "totalAmount": float(grand_total)
